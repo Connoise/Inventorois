@@ -156,6 +156,7 @@ export interface Item {
   warranty_expiration: string | null;
   last_checked_date: string | null;
   notes: string | null;
+  image_url: string | null;
   custom_fields: Record<string, any>;
   created_by: string | null;
   updated_by: string | null;

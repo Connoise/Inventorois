@@ -3,7 +3,7 @@ import {
   Home, Package, FolderTree, MapPin, Tags, FileText, History, Settings,
   Plus, Search, Filter, Grid, List, Moon, Sun, Bell, Menu, X, ChevronRight,
   ChevronDown, Star, StarOff, AlertTriangle, Edit2, Trash2, Download,
-  MoreVertical, Clock, Undo2, LogOut, Loader2
+  MoreVertical, Clock, Undo2, LogOut, Loader2, Camera, Image as ImageIcon
 } from 'lucide-react';
 
 import { useAuth } from './hooks';
@@ -320,7 +320,7 @@ const ItemForm = memo(({
   onCancel: () => void;
   categories: { id: string; name: string }[];
   locationOptions: { id: string; path: string; depth: number }[];
-  initialData?: { name?: string; unit?: string; min_threshold?: string; is_essential?: boolean };
+  initialData?: { name?: string; unit?: string; min_threshold?: string; is_essential?: boolean; image_url?: string };
   darkMode: boolean;
 }) => {
   const [name, setName] = useState(initialData?.name || '');
@@ -332,10 +332,31 @@ const ItemForm = memo(({
   const [price, setPrice] = useState('');
   const [isEssential, setIsEssential] = useState(initialData?.is_essential || false);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(initialData?.image_url || null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const textPrimary = darkMode ? 'text-white' : 'text-gray-900';
+  const textSecondary = darkMode ? 'text-gray-400' : 'text-gray-600';
   const borderColor = darkMode ? 'border-gray-700' : 'border-gray-200';
   const inputBg = darkMode ? 'bg-gray-700' : 'bg-white';
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,11 +370,53 @@ const ItemForm = memo(({
       purchase_price: price,
       is_essential: isEssential,
       is_favorite: isFavorite,
+      image_file: imageFile,
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="p-4 space-y-4">
+      {/* Photo Upload Section */}
+      <div>
+        <label className={`block text-sm font-medium ${textPrimary} mb-2`}>Photo</label>
+        <div className="flex items-center gap-4">
+          {imagePreview ? (
+            <div className="relative">
+              <img 
+                src={imagePreview} 
+                alt="Preview" 
+                className="w-24 h-24 object-cover rounded-lg border-2 border-gray-200"
+              />
+              <button
+                type="button"
+                onClick={removeImage}
+                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <label className={`w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed ${borderColor} rounded-lg cursor-pointer hover:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+              <Camera size={24} className={textSecondary} />
+              <span className={`text-xs ${textSecondary} mt-1`}>Add Photo</span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImageChange}
+                className="hidden"
+              />
+            </label>
+          )}
+          {!imagePreview && (
+            <div className={`text-sm ${textSecondary}`}>
+              <p>Tap to take a photo</p>
+              <p>or select from gallery</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Item Name *</label>
         <input
@@ -451,7 +514,8 @@ const ItemForm = memo(({
         <button type="button" onClick={onCancel} className={`px-4 py-2 rounded-lg border ${borderColor} ${textPrimary}`}>
           Cancel
         </button>
-        <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+        <button type="submit" disabled={isUploading} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2">
+          {isUploading && <Loader2 size={16} className="animate-spin" />}
           Add Item
         </button>
       </div>
@@ -588,7 +652,7 @@ function MainApp() {
   const { filters, setSearch, setFilter, clearFilters } = useFilterStore();
   const { showUndoToast, hideToast } = useUndoStore();
   
-  const { items, loading: itemsLoading, updateQuantity, toggleFavorite, createItem, archiveItem } = useItems();
+  const { items, loading: itemsLoading, updateQuantity, toggleFavorite, createItem, updateItem, archiveItem } = useItems();
   const { categories, createCategory, deleteCategory } = useCategories();
   const { locations, locationOptions, createLocation, deleteLocation } = useLocations();
   const { tags, createTag, deleteTag } = useTags();
@@ -633,7 +697,8 @@ function MainApp() {
   // Handle form submissions
   const handleCreateItem = useCallback(async (data: any) => {
     try {
-      await createItem(
+      // Create the item first
+      const newItem = await createItem(
         {
           name: data.name,
           quantity: data.quantity,
@@ -657,17 +722,34 @@ function MainApp() {
           warranty_expiration: null,
           last_checked_date: null,
           notes: null,
+          image_url: null,
           custom_fields: {},
         },
         data.location_id || undefined
       );
+
+      // If there's an image file, upload it
+      if (data.image_file && newItem) {
+        try {
+          const { uploadItemImage, compressImage } = await import('./services/images');
+          // Compress the image before uploading
+          const compressedFile = await compressImage(data.image_file, 800);
+          const imageUrl = await uploadItemImage(compressedFile, newItem.id);
+          // Update the item with the image URL
+          await updateItem(newItem.id, { image_url: imageUrl });
+        } catch (imgErr) {
+          console.error('Failed to upload image:', imgErr);
+          // Don't fail the whole operation if image upload fails
+        }
+      }
+
       setItemFormInitialData(null);
       closeAddModal();
     } catch (err) {
       console.error('Failed to create item:', err);
       alert('Failed to create item.');
     }
-  }, [createItem, closeAddModal]);
+  }, [createItem, updateItem, closeAddModal]);
 
   const handleCreateLocation = useCallback(async (data: { name: string; location_type: string; parent_id: string }) => {
     try {
@@ -779,58 +861,100 @@ function MainApp() {
 
   // Item Card Component
   const ItemCard = useCallback(({ item }: { item: ItemWithRelations }) => (
-    <div className={`${bgCard} rounded-lg border ${borderColor} p-4 hover:shadow-lg transition-shadow relative`}>
-      <div className="absolute top-2 right-2">
-        <button 
-          onClick={(e) => { e.stopPropagation(); setShowItemMenu(showItemMenu === item.id ? null : item.id); }}
-          className={`p-1 rounded hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''}`}
-        >
-          <MoreVertical size={16} className={textSecondary} />
-        </button>
-        
-        {showItemMenu === item.id && (
-          <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10`}>
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
-              className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 rounded-lg"
+    <div className={`${bgCard} rounded-lg border ${borderColor} overflow-hidden hover:shadow-lg transition-shadow relative`}>
+      {/* Item Image */}
+      {item.image_url ? (
+        <div className="relative w-full h-32 bg-gray-100">
+          <img 
+            src={item.image_url} 
+            alt={item.name}
+            className="w-full h-full object-cover"
+          />
+          {/* Overlay for menu button */}
+          <div className="absolute top-2 right-2">
+            <button 
+              onClick={(e) => { e.stopPropagation(); setShowItemMenu(showItemMenu === item.id ? null : item.id); }}
+              className="p-1 rounded bg-black/30 hover:bg-black/50 text-white"
             >
-              <Trash2 size={14} /> Delete
+              <MoreVertical size={16} />
             </button>
+            
+            {showItemMenu === item.id && (
+              <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10`}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
+                  className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 rounded-lg"
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-
-      <div className="flex justify-between items-start mb-2 pr-8">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className={`font-semibold ${textPrimary}`}>{item.name}</h3>
-            {item.is_essential && <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Essential</span>}
-          </div>
-          <p className={`text-sm ${textSecondary}`}>{item.category?.name || 'Uncategorized'}</p>
+          {/* Favorite button on image */}
+          <button 
+            onClick={() => toggleFavorite(item.id)} 
+            className="absolute top-2 left-2 p-1 rounded bg-black/30 hover:bg-black/50"
+          >
+            {item.is_favorite ? <Star size={18} className="text-yellow-400 fill-yellow-400" /> : <StarOff size={18} className="text-white" />}
+          </button>
         </div>
-        <button onClick={() => toggleFavorite(item.id)} className="p-1">
-          {item.is_favorite ? <Star size={20} className="text-yellow-500 fill-yellow-500" /> : <StarOff size={20} className={textSecondary} />}
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <button onClick={() => updateQuantity(item.id, -1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>-</button>
-          <span className={`font-bold text-xl ${textPrimary} min-w-[60px] text-center`}>{item.quantity} <span className="text-sm font-normal">{item.unit}</span></span>
-          <button onClick={() => updateQuantity(item.id, 1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>+</button>
-        </div>
-        <StatusBadge status={item.status} />
-      </div>
-
-      {item.min_threshold && item.status !== 'in_stock' && (
-        <div className="flex items-center gap-1 text-yellow-600 text-sm mb-2">
-          <AlertTriangle size={14} /><span>Below threshold ({item.min_threshold})</span>
+      ) : (
+        <div className="absolute top-2 right-2 z-10">
+          <button 
+            onClick={(e) => { e.stopPropagation(); setShowItemMenu(showItemMenu === item.id ? null : item.id); }}
+            className={`p-1 rounded hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''}`}
+          >
+            <MoreVertical size={16} className={textSecondary} />
+          </button>
+          
+          {showItemMenu === item.id && (
+            <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10`}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
+                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 rounded-lg"
+              >
+                <Trash2 size={14} /> Delete
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      <div className={`text-xs ${textSecondary} space-y-1`}>
-        {item.primary_location && <div className="flex items-center gap-1"><MapPin size={12} /><span>{item.primary_location}</span></div>}
-        <div className="flex items-center gap-1"><Clock size={12} /><span>Updated {formatRelativeTime(item.updated_at)}</span></div>
+      <div className="p-4">
+        <div className="flex justify-between items-start mb-2 pr-8">
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className={`font-semibold ${textPrimary}`}>{item.name}</h3>
+              {item.is_essential && <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Essential</span>}
+            </div>
+            <p className={`text-sm ${textSecondary}`}>{item.category?.name || 'Uncategorized'}</p>
+          </div>
+          {!item.image_url && (
+            <button onClick={() => toggleFavorite(item.id)} className="p-1">
+              {item.is_favorite ? <Star size={20} className="text-yellow-500 fill-yellow-500" /> : <StarOff size={20} className={textSecondary} />}
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <button onClick={() => updateQuantity(item.id, -1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>-</button>
+            <span className={`font-bold text-xl ${textPrimary} min-w-[60px] text-center`}>{item.quantity} <span className="text-sm font-normal">{item.unit}</span></span>
+            <button onClick={() => updateQuantity(item.id, 1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>+</button>
+          </div>
+          <StatusBadge status={item.status} />
+        </div>
+
+        {item.min_threshold && item.status !== 'in_stock' && (
+          <div className="flex items-center gap-1 text-yellow-600 text-sm mb-2">
+            <AlertTriangle size={14} /><span>Below threshold ({item.min_threshold})</span>
+          </div>
+        )}
+
+        <div className={`text-xs ${textSecondary} space-y-1`}>
+          {item.primary_location && <div className="flex items-center gap-1"><MapPin size={12} /><span>{item.primary_location}</span></div>}
+          <div className="flex items-center gap-1"><Clock size={12} /><span>Updated {formatRelativeTime(item.updated_at)}</span></div>
+        </div>
       </div>
     </div>
   ), [bgCard, borderColor, darkMode, textPrimary, textSecondary, showItemMenu, toggleFavorite, updateQuantity]);
