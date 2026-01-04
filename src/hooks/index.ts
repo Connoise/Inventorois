@@ -233,7 +233,7 @@ export function useLocations() {
     () => locationsService.fetchLocationTree()
   );
   
-  const [options, setOptions] = useState<{ id: string; path: string; depth: number }[]>([]);
+  const [options, setOptions] = useState<{ id: string; name: string; path: string; depth: number }[]>([]);
 
   useEffect(() => {
     locationsService.fetchLocationOptions().then(setOptions);

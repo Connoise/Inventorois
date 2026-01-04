@@ -37,17 +37,18 @@ export async function fetchLocationTree(): Promise<LocationWithChildren[]> {
 }
 
 // Get flat list with full paths for dropdowns
-export async function fetchLocationOptions(): Promise<{ id: string; path: string; depth: number }[]> {
+export async function fetchLocationOptions(): Promise<{ id: string; name: string; path: string; depth: number }[]> {
   const { data, error } = await supabase
     .from('locations')
-    .select('id, path_cache, depth')
+    .select('id, name, path_cache, depth')
     .order('path_cache', { ascending: true });
 
   if (error) throw error;
   
   return (data || []).map(loc => ({
     id: loc.id,
-    path: loc.path_cache || 'Unknown',
+    name: loc.name,
+    path: loc.path_cache || loc.name || 'Unknown',
     depth: loc.depth || 0,
   }));
 }

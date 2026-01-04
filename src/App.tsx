@@ -307,34 +307,52 @@ const CategoryForm = memo(({
   );
 });
 
-// Item Form Component
+// Item Form Component - Supports both Add and Edit modes
 const ItemForm = memo(({ 
   onSubmit, 
   onCancel, 
   categories,
   locationOptions,
+  tags: availableTags,
   initialData,
+  isEditMode = false,
   darkMode 
 }: {
   onSubmit: (data: any) => void;
   onCancel: () => void;
   categories: { id: string; name: string }[];
-  locationOptions: { id: string; path: string; depth: number }[];
-  initialData?: { name?: string; unit?: string; min_threshold?: string; is_essential?: boolean; image_url?: string };
+  locationOptions: { id: string; path: string; depth: number; name: string }[];
+  tags: { id: string; name: string; color: string }[];
+  initialData?: { 
+    id?: string;
+    name?: string; 
+    quantity?: number;
+    unit?: string; 
+    category_id?: string;
+    location_id?: string;
+    min_threshold?: string; 
+    purchase_price?: string;
+    is_essential?: boolean; 
+    is_favorite?: boolean;
+    image_url?: string;
+    tag_ids?: string[];
+  };
+  isEditMode?: boolean;
   darkMode: boolean;
 }) => {
   const [name, setName] = useState(initialData?.name || '');
-  const [quantity, setQuantity] = useState(1);
+  const [quantity, setQuantity] = useState(initialData?.quantity || 1);
   const [unit, setUnit] = useState(initialData?.unit || 'units');
-  const [categoryId, setCategoryId] = useState('');
-  const [locationId, setLocationId] = useState('');
+  const [categoryId, setCategoryId] = useState(initialData?.category_id || '');
+  const [locationId, setLocationId] = useState(initialData?.location_id || '');
   const [minThreshold, setMinThreshold] = useState(initialData?.min_threshold || '');
-  const [price, setPrice] = useState('');
+  const [price, setPrice] = useState(initialData?.purchase_price || '');
   const [isEssential, setIsEssential] = useState(initialData?.is_essential || false);
-  const [isFavorite, setIsFavorite] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(initialData?.is_favorite || false);
+  const [selectedTags, setSelectedTags] = useState<string[]>(initialData?.tag_ids || []);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.image_url || null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const textPrimary = darkMode ? 'text-white' : 'text-gray-900';
   const textSecondary = darkMode ? 'text-gray-400' : 'text-gray-600';
@@ -358,24 +376,58 @@ const ItemForm = memo(({
     setImagePreview(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({
-      name,
-      quantity,
-      unit,
-      category_id: categoryId,
-      location_id: locationId,
-      min_threshold: minThreshold,
-      purchase_price: price,
-      is_essential: isEssential,
-      is_favorite: isFavorite,
-      image_file: imageFile,
-    });
+  const toggleTag = (tagId: string) => {
+    setSelectedTags(prev => 
+      prev.includes(tagId) 
+        ? prev.filter(id => id !== tagId)
+        : [...prev, tagId]
+    );
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        id: initialData?.id,
+        name,
+        quantity,
+        unit,
+        category_id: categoryId,
+        location_id: locationId,
+        min_threshold: minThreshold,
+        purchase_price: price,
+        is_essential: isEssential,
+        is_favorite: isFavorite,
+        tag_ids: selectedTags,
+        image_file: imageFile,
+        image_url: imagePreview && !imageFile ? imagePreview : null,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Group locations by parent for better visual hierarchy
+  const groupedLocations = locationOptions.reduce((acc, loc) => {
+    if (loc.depth === 0) {
+      acc.push({ ...loc, children: [] });
+    } else {
+      // Find parent group
+      const parentPath = loc.path.split(' → ').slice(0, -1).join(' → ');
+      const parent = acc.find(p => p.path === parentPath || loc.path.startsWith(p.path + ' → '));
+      if (parent) {
+        parent.children = parent.children || [];
+        parent.children.push(loc);
+      } else {
+        acc.push({ ...loc, children: [] });
+      }
+    }
+    return acc;
+  }, [] as (typeof locationOptions[0] & { children: typeof locationOptions })[]);
+
   return (
-    <form onSubmit={handleSubmit} className="p-4 space-y-4">
+    <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
       {/* Photo Upload Section */}
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-2`}>Photo</label>
@@ -385,7 +437,7 @@ const ItemForm = memo(({
               <img 
                 src={imagePreview} 
                 alt="Preview" 
-                className="w-24 h-24 object-cover rounded-lg border-2 border-gray-200"
+                className="w-20 h-20 object-cover rounded-lg border-2 border-gray-200"
               />
               <button
                 type="button"
@@ -396,9 +448,9 @@ const ItemForm = memo(({
               </button>
             </div>
           ) : (
-            <label className={`w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed ${borderColor} rounded-lg cursor-pointer hover:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-              <Camera size={24} className={textSecondary} />
-              <span className={`text-xs ${textSecondary} mt-1`}>Add Photo</span>
+            <label className={`w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed ${borderColor} rounded-lg cursor-pointer hover:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+              <Camera size={20} className={textSecondary} />
+              <span className={`text-xs ${textSecondary} mt-1`}>Photo</span>
               <input
                 type="file"
                 accept="image/*"
@@ -408,15 +460,10 @@ const ItemForm = memo(({
               />
             </label>
           )}
-          {!imagePreview && (
-            <div className={`text-sm ${textSecondary}`}>
-              <p>Tap to take a photo</p>
-              <p>or select from gallery</p>
-            </div>
-          )}
         </div>
       </div>
 
+      {/* Item Name */}
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Item Name *</label>
         <input
@@ -428,7 +475,9 @@ const ItemForm = memo(({
           autoFocus
         />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+
+      {/* Quantity & Unit */}
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Quantity *</label>
           <input
@@ -452,9 +501,15 @@ const ItemForm = memo(({
             <option value="rolls">rolls</option>
             <option value="bottles">bottles</option>
             <option value="boxes">boxes</option>
+            <option value="bags">bags</option>
+            <option value="cans">cans</option>
+            <option value="pairs">pairs</option>
+            <option value="sets">sets</option>
           </select>
         </div>
       </div>
+
+      {/* Category */}
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Category</label>
         <select
@@ -466,6 +521,8 @@ const ItemForm = memo(({
           {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
         </select>
       </div>
+
+      {/* Location - Improved nested dropdown */}
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Location</label>
         <select
@@ -474,24 +531,69 @@ const ItemForm = memo(({
           className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
         >
           <option value="">Select location</option>
-          {locationOptions.map(loc => (
-            <option key={loc.id} value={loc.id}>{'  '.repeat(loc.depth)}{loc.path}</option>
-          ))}
+          {locationOptions.map(loc => {
+            // Create visual indentation based on depth
+            const indent = loc.depth > 0 ? '│ '.repeat(loc.depth - 1) + '├─ ' : '';
+            const displayName = loc.path.split(' → ').pop() || loc.path;
+            return (
+              <option key={loc.id} value={loc.id} style={{ paddingLeft: loc.depth * 12 }}>
+                {indent}{displayName}
+              </option>
+            );
+          })}
         </select>
+        {locationId && (
+          <p className={`text-xs ${textSecondary} mt-1`}>
+            Full path: {locationOptions.find(l => l.id === locationId)?.path}
+          </p>
+        )}
       </div>
-      <div className="grid grid-cols-2 gap-4">
+
+      {/* Tags */}
+      <div>
+        <label className={`block text-sm font-medium ${textPrimary} mb-2`}>Tags</label>
+        {availableTags.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {availableTags.map(tag => (
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => toggleTag(tag.id)}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                  selectedTags.includes(tag.id)
+                    ? 'ring-2 ring-offset-1 ring-blue-500'
+                    : 'opacity-60 hover:opacity-100'
+                }`}
+                style={{ 
+                  backgroundColor: tag.color + '30', 
+                  color: darkMode ? '#fff' : tag.color,
+                  borderColor: tag.color
+                }}
+              >
+                {tag.name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className={`text-sm ${textSecondary}`}>No tags available. Create tags first.</p>
+        )}
+      </div>
+
+      {/* Min Threshold & Price */}
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Min Threshold</label>
+          <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Min Stock Alert</label>
           <input
             type="number"
             value={minThreshold}
             onChange={(e) => setMinThreshold(e.target.value)}
             className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
             min="0"
+            placeholder="Alert when below"
           />
         </div>
         <div>
-          <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Price</label>
+          <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Price ($)</label>
           <input
             type="number"
             step="0.01"
@@ -499,24 +601,45 @@ const ItemForm = memo(({
             onChange={(e) => setPrice(e.target.value)}
             className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
             min="0"
+            placeholder="0.00"
           />
         </div>
       </div>
-      <div className="flex items-center gap-4">
-        <label className={`flex items-center gap-2 ${textPrimary}`}>
-          <input type="checkbox" checked={isEssential} onChange={(e) => setIsEssential(e.target.checked)} /> Essential
+
+      {/* Flags */}
+      <div className="flex items-center gap-6">
+        <label className={`flex items-center gap-2 ${textPrimary} cursor-pointer`}>
+          <input 
+            type="checkbox" 
+            checked={isEssential} 
+            onChange={(e) => setIsEssential(e.target.checked)}
+            className="w-4 h-4 rounded"
+          /> 
+          <span className="text-sm">Essential Item</span>
         </label>
-        <label className={`flex items-center gap-2 ${textPrimary}`}>
-          <input type="checkbox" checked={isFavorite} onChange={(e) => setIsFavorite(e.target.checked)} /> Favorite
+        <label className={`flex items-center gap-2 ${textPrimary} cursor-pointer`}>
+          <input 
+            type="checkbox" 
+            checked={isFavorite} 
+            onChange={(e) => setIsFavorite(e.target.checked)}
+            className="w-4 h-4 rounded"
+          /> 
+          <span className="text-sm">Favorite</span>
         </label>
       </div>
-      <div className={`flex justify-end gap-3 pt-4 border-t ${borderColor}`}>
+
+      {/* Submit Buttons */}
+      <div className={`flex justify-end gap-3 pt-4 border-t ${borderColor} sticky bottom-0 ${darkMode ? 'bg-gray-800' : 'bg-white'} -mx-4 px-4 pb-2`}>
         <button type="button" onClick={onCancel} className={`px-4 py-2 rounded-lg border ${borderColor} ${textPrimary}`}>
           Cancel
         </button>
-        <button type="submit" disabled={isUploading} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2">
-          {isUploading && <Loader2 size={16} className="animate-spin" />}
-          Add Item
+        <button 
+          type="submit" 
+          disabled={isSubmitting} 
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+        >
+          {isSubmitting && <Loader2 size={16} className="animate-spin" />}
+          {isEditMode ? 'Save Changes' : 'Add Item'}
         </button>
       </div>
     </form>
@@ -671,6 +794,7 @@ function MainApp() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showItemMenu, setShowItemMenu] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<ItemWithRelations | null>(null);
   
   // Template data for item form
   const [itemFormInitialData, setItemFormInitialData] = useState<any>(null);
@@ -725,7 +849,8 @@ function MainApp() {
           image_url: null,
           custom_fields: {},
         },
-        data.location_id || undefined
+        data.location_id || undefined,
+        data.tag_ids || undefined
       );
 
       // If there's an image file, upload it
@@ -750,6 +875,52 @@ function MainApp() {
       alert('Failed to create item.');
     }
   }, [createItem, updateItem, closeAddModal]);
+
+  // Handle edit item
+  const handleEditItem = useCallback((item: ItemWithRelations) => {
+    setEditingItem(item);
+  }, []);
+
+  // Handle update item
+  const handleUpdateItem = useCallback(async (data: any) => {
+    if (!data.id) return;
+    
+    try {
+      // Update the item
+      await updateItem(
+        data.id,
+        {
+          name: data.name,
+          quantity: data.quantity,
+          unit: data.unit,
+          category_id: data.category_id || null,
+          min_threshold: data.min_threshold ? parseFloat(data.min_threshold) : null,
+          purchase_price: data.purchase_price ? parseFloat(data.purchase_price) : null,
+          is_essential: data.is_essential,
+          is_favorite: data.is_favorite,
+        },
+        data.location_id || undefined,
+        data.tag_ids
+      );
+
+      // If there's a new image file, upload it
+      if (data.image_file) {
+        try {
+          const { uploadItemImage, compressImage } = await import('./services/images');
+          const compressedFile = await compressImage(data.image_file, 800);
+          const imageUrl = await uploadItemImage(compressedFile, data.id);
+          await updateItem(data.id, { image_url: imageUrl });
+        } catch (imgErr) {
+          console.error('Failed to upload image:', imgErr);
+        }
+      }
+
+      setEditingItem(null);
+    } catch (err) {
+      console.error('Failed to update item:', err);
+      alert('Failed to update item.');
+    }
+  }, [updateItem]);
 
   const handleCreateLocation = useCallback(async (data: { name: string; location_type: string; parent_id: string }) => {
     try {
@@ -860,7 +1031,7 @@ function MainApp() {
   }, [items]);
 
   // Item Card Component
-  const ItemCard = useCallback(({ item }: { item: ItemWithRelations }) => (
+  const ItemCard = useCallback(({ item, onEdit }: { item: ItemWithRelations; onEdit: (item: ItemWithRelations) => void }) => (
     <div className={`${bgCard} rounded-lg border ${borderColor} overflow-hidden hover:shadow-lg transition-shadow relative`}>
       {/* Item Image */}
       {item.image_url ? (
@@ -880,10 +1051,16 @@ function MainApp() {
             </button>
             
             {showItemMenu === item.id && (
-              <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10`}>
+              <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10 overflow-hidden`}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdit(item); setShowItemMenu(null); }}
+                  className={`w-full px-3 py-2 text-left text-sm ${textPrimary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} flex items-center gap-2`}
+                >
+                  <Edit2 size={14} /> Edit
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
-                  className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 rounded-lg"
+                  className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2"
                 >
                   <Trash2 size={14} /> Delete
                 </button>
@@ -908,10 +1085,16 @@ function MainApp() {
           </button>
           
           {showItemMenu === item.id && (
-            <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10`}>
+            <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10 overflow-hidden`}>
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(item); setShowItemMenu(null); }}
+                className={`w-full px-3 py-2 text-left text-sm ${textPrimary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} flex items-center gap-2`}
+              >
+                <Edit2 size={14} /> Edit
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
-                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 rounded-lg"
+                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2"
               >
                 <Trash2 size={14} /> Delete
               </button>
@@ -935,6 +1118,21 @@ function MainApp() {
             </button>
           )}
         </div>
+
+        {/* Tags display */}
+        {item.tags && item.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {item.tags.map(tag => (
+              <span 
+                key={tag.id} 
+                className="px-2 py-0.5 rounded-full text-xs"
+                style={{ backgroundColor: tag.color + '30', color: darkMode ? '#fff' : tag.color }}
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1155,9 +1353,10 @@ function MainApp() {
         </div>
       ) : (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' : 'space-y-2'}>
-          {items.map(item => viewMode === 'grid' ? <ItemCard key={item.id} item={item} /> : (
+          {items.map(item => viewMode === 'grid' ? <ItemCard key={item.id} item={item} onEdit={handleEditItem} /> : (
             <div key={item.id} className={`${bgCard} border ${borderColor} rounded-lg p-3 flex items-center gap-4`}>
               <button onClick={() => toggleFavorite(item.id)}>{item.is_favorite ? <Star size={18} className="text-yellow-500 fill-yellow-500" /> : <StarOff size={18} className={textSecondary} />}</button>
+              {item.image_url && <img src={item.image_url} alt={item.name} className="w-10 h-10 rounded object-cover" />}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2"><span className={`font-medium ${textPrimary}`}>{item.name}</span>{item.is_essential && <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Essential</span>}</div>
                 <div className={`text-sm ${textSecondary}`}>{item.category?.name || 'Uncategorized'}</div>
@@ -1169,6 +1368,7 @@ function MainApp() {
                   <button onClick={() => updateQuantity(item.id, 1)} className={`w-6 h-6 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} flex items-center justify-center text-sm font-bold`}>+</button>
                 </div>
                 <StatusBadge status={item.status} />
+                <button onClick={() => handleEditItem(item)} className={`p-1 ${textSecondary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} rounded`}><Edit2 size={16} /></button>
                 <button onClick={() => setShowDeleteConfirm(item.id)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16} /></button>
               </div>
             </div>
@@ -1366,9 +1566,41 @@ function MainApp() {
           onCancel={() => { setItemFormInitialData(null); closeAddModal(); }}
           categories={categories}
           locationOptions={locationOptions}
+          tags={tags}
           initialData={itemFormInitialData}
+          isEditMode={false}
           darkMode={darkMode}
         />
+      </Modal>
+
+      {/* Edit Item Modal */}
+      <Modal show={!!editingItem} onClose={() => setEditingItem(null)} title="Edit Item" darkMode={darkMode}>
+        {editingItem && (
+          <ItemForm
+            key={editingItem.id}
+            onSubmit={handleUpdateItem}
+            onCancel={() => setEditingItem(null)}
+            categories={categories}
+            locationOptions={locationOptions}
+            tags={tags}
+            initialData={{
+              id: editingItem.id,
+              name: editingItem.name,
+              quantity: editingItem.quantity,
+              unit: editingItem.unit,
+              category_id: editingItem.category_id || '',
+              location_id: editingItem.locations?.find(l => l.is_primary)?.location_id || '',
+              min_threshold: editingItem.min_threshold?.toString() || '',
+              purchase_price: editingItem.purchase_price?.toString() || '',
+              is_essential: editingItem.is_essential,
+              is_favorite: editingItem.is_favorite,
+              image_url: editingItem.image_url || '',
+              tag_ids: editingItem.tags?.map(t => t.id) || [],
+            }}
+            isEditMode={true}
+            darkMode={darkMode}
+          />
+        )}
       </Modal>
 
       <Modal show={showLocationModal} onClose={() => setShowLocationModal(false)} title="Add New Location" darkMode={darkMode}>
