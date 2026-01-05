@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import {
   Home, Package, FolderTree, MapPin, Tags, FileText, History, Settings,
   Plus, Search, Filter, Grid, List, Moon, Sun, Bell, Menu, X, ChevronRight,
   ChevronDown, Star, StarOff, AlertTriangle, Edit2, Trash2, Download,
-  MoreVertical, Clock, Undo2, LogOut, Loader2, Camera, Image as ImageIcon
+  MoreVertical, Clock, Undo2, LogOut, Loader2, Camera, Image as ImageIcon,
+  BarChart3, ShoppingCart, Users, User, Calendar, RefreshCw, CheckCircle,
+  TrendingDown, TrendingUp, DollarSign, AlertCircle, PieChart, Upload
 } from 'lucide-react';
 
 import { useAuth } from './hooks';
@@ -11,6 +13,7 @@ import { useItems, useCategories, useLocations, useTags, useTemplates, useHistor
 import { useUIStore, useFilterStore, useUndoStore } from './stores';
 import { formatRelativeTime, getStatusColor, getStatusLabel, exportToCSV } from './utils';
 import { signIn, signUp, signOut } from './lib/supabase';
+import { supabase } from './lib/supabase';
 import type { ItemWithRelations, LocationWithChildren } from './types/supabase';
 
 // ============================================
@@ -28,14 +31,57 @@ const LOCATION_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+// Expanded color palette
 const COLOR_OPTIONS = [
-  '#EF4444', '#F97316', '#F59E0B', '#EAB308', '#84CC16',
-  '#22C55E', '#10B981', '#14B8A6', '#06B6D4', '#0EA5E9',
-  '#3B82F6', '#6366F1', '#8B5CF6', '#A855F7', '#D946EF',
-  '#EC4899', '#F43F5E', '#6B7280', '#78716C', '#71717A',
+  // Reds
+  '#EF4444', '#DC2626', '#B91C1C', '#F87171',
+  // Oranges
+  '#F97316', '#EA580C', '#FB923C',
+  // Yellows
+  '#F59E0B', '#EAB308', '#FACC15',
+  // Greens
+  '#84CC16', '#22C55E', '#10B981', '#059669', '#047857',
+  // Teals/Cyans
+  '#14B8A6', '#06B6D4', '#0891B2',
+  // Blues
+  '#0EA5E9', '#3B82F6', '#2563EB', '#1D4ED8',
+  // Indigos/Purples
+  '#6366F1', '#4F46E5', '#8B5CF6', '#7C3AED', '#A855F7', '#9333EA',
+  // Pinks/Magentas
+  '#D946EF', '#C026D3', '#EC4899', '#DB2777', '#F43F5E', '#E11D48',
+  // Neutrals
+  '#6B7280', '#78716C', '#71717A', '#52525B', '#404040',
 ];
 
-const ICON_OPTIONS = ['📦', '🍳', '🛁', '✨', '💻', '📝', '🛏️', '🔧', '💊', '🐕', '🌳', '📁', '🎮', '👕', '🚗', '📚', '🎨', '🏠'];
+// Expanded icon options organized by category
+const ICON_OPTIONS = [
+  // Home & Rooms
+  '🏠', '🏡', '🏢', '🛏️', '🛋️', '🚿', '🛁', '🚽', '🪑', '🚪',
+  // Kitchen & Food
+  '🍳', '🍴', '🥄', '🍽️', '🧊', '🥫', '🍶', '☕', '🧂', '🥡',
+  // Cleaning & Supplies
+  '✨', '🧹', '🧺', '🧴', '🧼', '🧽', '🪣', '🧻', '🗑️',
+  // Tools & Hardware
+  '🔧', '🔨', '🪛', '🔩', '⚙️', '🪚', '📐', '🔌', '💡', '🔋',
+  // Electronics & Tech
+  '💻', '🖥️', '📱', '🎮', '🎧', '📷', '🖨️', '💾', '📺', '🔊',
+  // Office & Stationery
+  '📝', '📁', '📂', '📎', '✂️', '📌', '🖊️', '📒', '📚', '🗂️',
+  // Health & Personal
+  '💊', '🩹', '🧴', '🪥', '🧪', '💉', '🩺', '👓', '💄', '🧴',
+  // Clothing & Accessories
+  '👕', '👖', '👗', '👔', '🧥', '👟', '👜', '🎒', '👒', '🧤',
+  // Outdoor & Sports
+  '🌳', '🌿', '🪴', '⚽', '🏀', '🎾', '🚲', '⛺', '🎣', '🏊',
+  // Pets & Animals
+  '🐕', '🐈', '🐠', '🐦', '🐹', '🦎',
+  // Vehicles & Transport
+  '🚗', '🚙', '🏍️', '🚁', '⛵', '🛒',
+  // Art & Craft
+  '🎨', '🖼️', '✏️', '🧵', '🧶', '🎭',
+  // Misc
+  '📦', '🎁', '🔑', '🏷️', '⭐', '❤️', '🔒', '📍', '🎯', '💎',
+];
 
 // ============================================
 // MODAL COMPONENT
@@ -221,29 +267,38 @@ const CategoryForm = memo(({
   onSubmit, 
   onCancel, 
   categories,
+  initialData,
+  isEditMode = false,
   darkMode 
 }: {
-  onSubmit: (data: { name: string; icon: string; color: string; parent_id: string }) => void;
+  onSubmit: (data: { id?: string; name: string; icon: string; color: string; parent_id: string }) => void;
   onCancel: () => void;
   categories: { id: string; name: string }[];
+  initialData?: { id: string; name: string; icon: string; color: string; parent_id: string | null };
+  isEditMode?: boolean;
   darkMode: boolean;
 }) => {
-  const [name, setName] = useState('');
-  const [icon, setIcon] = useState('📦');
-  const [color, setColor] = useState('#6B7280');
-  const [parentId, setParentId] = useState('');
+  const [name, setName] = useState(initialData?.name || '');
+  const [icon, setIcon] = useState(initialData?.icon || '📦');
+  const [color, setColor] = useState(initialData?.color || '#6B7280');
+  const [parentId, setParentId] = useState(initialData?.parent_id || '');
+  const [showAllIcons, setShowAllIcons] = useState(false);
 
   const textPrimary = darkMode ? 'text-white' : 'text-gray-900';
+  const textSecondary = darkMode ? 'text-gray-400' : 'text-gray-600';
   const borderColor = darkMode ? 'border-gray-700' : 'border-gray-200';
   const inputBg = darkMode ? 'bg-gray-700' : 'bg-white';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ name, icon, color, parent_id: parentId });
+    onSubmit({ id: initialData?.id, name, icon, color, parent_id: parentId });
   };
 
+  // Show limited icons initially, expand on click
+  const displayedIcons = showAllIcons ? ICON_OPTIONS : ICON_OPTIONS.slice(0, 24);
+
   return (
-    <form onSubmit={handleSubmit} className="p-4 space-y-4">
+    <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Category Name *</label>
         <input
@@ -258,27 +313,36 @@ const CategoryForm = memo(({
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Icon</label>
         <div className="flex flex-wrap gap-2">
-          {ICON_OPTIONS.map(ic => (
+          {displayedIcons.map(ic => (
             <button
               key={ic}
               type="button"
               onClick={() => setIcon(ic)}
-              className={`w-10 h-10 rounded-lg text-xl flex items-center justify-center border-2 ${icon === ic ? 'border-blue-500' : 'border-transparent'} ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}
+              className={`w-9 h-9 rounded-lg text-lg flex items-center justify-center border-2 ${icon === ic ? 'border-blue-500' : 'border-transparent'} ${darkMode ? 'bg-gray-700' : 'bg-gray-100'}`}
             >
               {ic}
             </button>
           ))}
+          {!showAllIcons && ICON_OPTIONS.length > 24 && (
+            <button
+              type="button"
+              onClick={() => setShowAllIcons(true)}
+              className={`w-9 h-9 rounded-lg text-xs flex items-center justify-center border-2 border-dashed ${borderColor} ${textSecondary}`}
+            >
+              +{ICON_OPTIONS.length - 24}
+            </button>
+          )}
         </div>
       </div>
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Color</label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {COLOR_OPTIONS.map(c => (
             <button
               key={c}
               type="button"
               onClick={() => setColor(c)}
-              className={`w-8 h-8 rounded-full border-2 ${color === c ? 'border-gray-900 dark:border-white' : 'border-transparent'}`}
+              className={`w-6 h-6 rounded-full border-2 ${color === c ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent'}`}
               style={{ backgroundColor: c }}
             />
           ))}
@@ -292,7 +356,7 @@ const CategoryForm = memo(({
           className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
         >
           <option value="">None (Top Level)</option>
-          {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+          {categories.filter(cat => cat.id !== initialData?.id).map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
         </select>
       </div>
       <div className={`flex justify-end gap-3 pt-4 border-t ${borderColor}`}>
@@ -300,7 +364,7 @@ const CategoryForm = memo(({
           Cancel
         </button>
         <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
-          Add Category
+          {isEditMode ? 'Save Changes' : 'Add Category'}
         </button>
       </div>
     </form>
@@ -314,6 +378,7 @@ const ItemForm = memo(({
   categories,
   locationOptions,
   tags: availableTags,
+  onCreateTag,
   initialData,
   isEditMode = false,
   darkMode 
@@ -323,6 +388,7 @@ const ItemForm = memo(({
   categories: { id: string; name: string }[];
   locationOptions: { id: string; path: string; depth: number; name: string }[];
   tags: { id: string; name: string; color: string }[];
+  onCreateTag?: (tag: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
   initialData?: { 
     id?: string;
     name?: string; 
@@ -336,6 +402,9 @@ const ItemForm = memo(({
     is_favorite?: boolean;
     image_url?: string;
     tag_ids?: string[];
+    notes?: string;
+    expiration_date?: string;
+    needs_replacement?: boolean;
   };
   isEditMode?: boolean;
   darkMode: boolean;
@@ -353,11 +422,25 @@ const ItemForm = memo(({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialData?.image_url || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [notes, setNotes] = useState(initialData?.notes || '');
+  const [expirationDate, setExpirationDate] = useState(initialData?.expiration_date || '');
+  const [needsReplacement, setNeedsReplacement] = useState(initialData?.needs_replacement || false);
+  
+  // Inline tag creation state
+  const [showNewTagForm, setShowNewTagForm] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#3B82F6');
+  const [localTags, setLocalTags] = useState(availableTags);
 
   const textPrimary = darkMode ? 'text-white' : 'text-gray-900';
   const textSecondary = darkMode ? 'text-gray-400' : 'text-gray-600';
   const borderColor = darkMode ? 'border-gray-700' : 'border-gray-200';
   const inputBg = darkMode ? 'bg-gray-700' : 'bg-white';
+
+  // Update local tags when availableTags changes
+  useEffect(() => {
+    setLocalTags(availableTags);
+  }, [availableTags]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -384,6 +467,18 @@ const ItemForm = memo(({
     );
   };
 
+  const handleCreateNewTag = async () => {
+    if (!newTagName.trim() || !onCreateTag) return;
+    
+    const newTag = await onCreateTag({ name: newTagName.trim(), color: newTagColor });
+    if (newTag) {
+      setLocalTags(prev => [...prev, newTag]);
+      setSelectedTags(prev => [...prev, newTag.id]);
+      setNewTagName('');
+      setShowNewTagForm(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -402,6 +497,9 @@ const ItemForm = memo(({
         tag_ids: selectedTags,
         image_file: imageFile,
         image_url: imagePreview && !imageFile ? imagePreview : null,
+        notes,
+        expiration_date: expirationDate || null,
+        needs_replacement: needsReplacement,
       });
     } finally {
       setIsSubmitting(false);
@@ -431,7 +529,7 @@ const ItemForm = memo(({
       {/* Photo Upload Section */}
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-2`}>Photo</label>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {imagePreview ? (
             <div className="relative">
               <img 
@@ -448,17 +546,31 @@ const ItemForm = memo(({
               </button>
             </div>
           ) : (
-            <label className={`w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed ${borderColor} rounded-lg cursor-pointer hover:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-              <Camera size={20} className={textSecondary} />
-              <span className={`text-xs ${textSecondary} mt-1`}>Photo</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleImageChange}
-                className="hidden"
-              />
-            </label>
+            <>
+              {/* Camera capture button */}
+              <label className={`w-16 h-16 flex flex-col items-center justify-center border-2 border-dashed ${borderColor} rounded-lg cursor-pointer hover:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                <Camera size={18} className={textSecondary} />
+                <span className={`text-xs ${textSecondary} mt-0.5`}>Camera</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleImageChange}
+                  className="hidden"
+                />
+              </label>
+              {/* Gallery selection button */}
+              <label className={`w-16 h-16 flex flex-col items-center justify-center border-2 border-dashed ${borderColor} rounded-lg cursor-pointer hover:border-blue-500 transition-colors ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                <Upload size={18} className={textSecondary} />
+                <span className={`text-xs ${textSecondary} mt-0.5`}>Gallery</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageChange}
+                  className="hidden"
+                />
+              </label>
+            </>
           )}
         </div>
       </div>
@@ -552,9 +664,10 @@ const ItemForm = memo(({
       {/* Tags */}
       <div>
         <label className={`block text-sm font-medium ${textPrimary} mb-2`}>Tags</label>
-        {availableTags.length > 0 ? (
+        <div className="space-y-2">
+          {/* Existing tags */}
           <div className="flex flex-wrap gap-2">
-            {availableTags.map(tag => (
+            {localTags.map(tag => (
               <button
                 key={tag.id}
                 type="button"
@@ -573,10 +686,62 @@ const ItemForm = memo(({
                 {tag.name}
               </button>
             ))}
+            {/* Add new tag button */}
+            {onCreateTag && !showNewTagForm && (
+              <button
+                type="button"
+                onClick={() => setShowNewTagForm(true)}
+                className={`px-3 py-1 rounded-full text-sm font-medium border-2 border-dashed ${borderColor} ${textSecondary} hover:border-blue-500 hover:text-blue-500 transition-colors`}
+              >
+                + New Tag
+              </button>
+            )}
           </div>
-        ) : (
-          <p className={`text-sm ${textSecondary}`}>No tags available. Create tags first.</p>
-        )}
+          
+          {/* Inline new tag form */}
+          {showNewTagForm && (
+            <div className={`p-3 rounded-lg border ${borderColor} ${darkMode ? 'bg-gray-700' : 'bg-gray-50'} space-y-2`}>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  placeholder="Tag name"
+                  className={`flex-1 p-2 rounded border ${borderColor} ${inputBg} ${textPrimary} text-sm`}
+                  autoFocus
+                />
+                <div className="flex items-center gap-1">
+                  {['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'].map(color => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setNewTagColor(color)}
+                      className={`w-6 h-6 rounded-full ${newTagColor === color ? 'ring-2 ring-offset-1 ring-gray-400' : ''}`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCreateNewTag}
+                  disabled={!newTagName.trim()}
+                  className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:opacity-50"
+                >
+                  Add Tag
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowNewTagForm(false); setNewTagName(''); }}
+                  className={`px-3 py-1 text-sm rounded border ${borderColor} ${textPrimary}`}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Min Threshold & Price */}
@@ -606,8 +771,31 @@ const ItemForm = memo(({
         </div>
       </div>
 
+      {/* Expiration Date */}
+      <div>
+        <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Expiration Date</label>
+        <input
+          type="date"
+          value={expirationDate}
+          onChange={(e) => setExpirationDate(e.target.value)}
+          className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+        />
+      </div>
+
+      {/* Notes */}
+      <div>
+        <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Notes</label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary} resize-none`}
+          placeholder="Additional notes about this item..."
+        />
+      </div>
+
       {/* Flags */}
-      <div className="flex items-center gap-6">
+      <div className="flex flex-wrap items-center gap-4">
         <label className={`flex items-center gap-2 ${textPrimary} cursor-pointer`}>
           <input 
             type="checkbox" 
@@ -615,7 +803,7 @@ const ItemForm = memo(({
             onChange={(e) => setIsEssential(e.target.checked)}
             className="w-4 h-4 rounded"
           /> 
-          <span className="text-sm">Essential Item</span>
+          <span className="text-sm">Essential</span>
         </label>
         <label className={`flex items-center gap-2 ${textPrimary} cursor-pointer`}>
           <input 
@@ -625,6 +813,15 @@ const ItemForm = memo(({
             className="w-4 h-4 rounded"
           /> 
           <span className="text-sm">Favorite</span>
+        </label>
+        <label className={`flex items-center gap-2 text-orange-500 cursor-pointer`}>
+          <input 
+            type="checkbox" 
+            checked={needsReplacement} 
+            onChange={(e) => setNeedsReplacement(e.target.checked)}
+            className="w-4 h-4 rounded"
+          /> 
+          <span className="text-sm">Needs Replacement</span>
         </label>
       </div>
 
@@ -694,7 +891,7 @@ function AuthScreen() {
           <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center">
             <Package size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">HomeBase</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Inventorois</h1>
         </div>
 
         <h2 className="text-xl font-semibold text-center mb-6">
@@ -776,10 +973,10 @@ function MainApp() {
   const { showUndoToast, hideToast } = useUndoStore();
   
   const { items, loading: itemsLoading, updateQuantity, toggleFavorite, createItem, updateItem, archiveItem } = useItems();
-  const { categories, createCategory, deleteCategory } = useCategories();
+  const { categories, createCategory, updateCategory, deleteCategory } = useCategories();
   const { locations, locationOptions, createLocation, deleteLocation } = useLocations();
   const { tags, createTag, deleteTag } = useTags();
-  const { templates, useTemplate } = useTemplates();
+  const { templates, useTemplate, createTemplate, deleteTemplate } = useTemplates();
   const { history, undoChange } = useHistory();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
@@ -795,6 +992,15 @@ function MainApp() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [showItemMenu, setShowItemMenu] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<ItemWithRelations | null>(null);
+  const [editingCategory, setEditingCategory] = useState<{ id: string; name: string; icon: string; color: string; parent_id: string | null } | null>(null);
+  
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterLocation, setFilterLocation] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterEssential, setFilterEssential] = useState(false);
+  const [inventoryViewMode, setInventoryViewMode] = useState<'all' | 'byLocation'>('all');
   
   // Template data for item form
   const [itemFormInitialData, setItemFormInitialData] = useState<any>(null);
@@ -810,6 +1016,8 @@ function MainApp() {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'inventory', label: 'Inventory', icon: Package },
+    { id: 'wishlist', label: 'Wishlist', icon: ShoppingCart },
+    { id: 'analysis', label: 'Analysis', icon: BarChart3 },
     { id: 'categories', label: 'Categories', icon: FolderTree },
     { id: 'locations', label: 'Locations', icon: MapPin },
     { id: 'tags', label: 'Tags', icon: Tags },
@@ -832,6 +1040,7 @@ function MainApp() {
           purchase_price: data.purchase_price ? parseFloat(data.purchase_price) : null,
           is_essential: data.is_essential,
           is_favorite: data.is_favorite,
+          needs_replacement: data.needs_replacement || false,
           description: null,
           is_archived: false,
           max_threshold: null,
@@ -842,10 +1051,10 @@ function MainApp() {
           model_number: null,
           serial_number: null,
           acquired_date: null,
-          expiration_date: null,
+          expiration_date: data.expiration_date || null,
           warranty_expiration: null,
           last_checked_date: null,
-          notes: null,
+          notes: data.notes || null,
           image_url: null,
           custom_fields: {},
         },
@@ -898,6 +1107,9 @@ function MainApp() {
           purchase_price: data.purchase_price ? parseFloat(data.purchase_price) : null,
           is_essential: data.is_essential,
           is_favorite: data.is_favorite,
+          needs_replacement: data.needs_replacement || false,
+          notes: data.notes || null,
+          expiration_date: data.expiration_date || null,
         },
         data.location_id || undefined,
         data.tag_ids
@@ -954,6 +1166,21 @@ function MainApp() {
     }
   }, [createTag]);
 
+  // Create tag and return it for inline use
+  const handleCreateTagInline = useCallback(async (data: { name: string; color: string }): Promise<{ id: string; name: string; color: string } | null> => {
+    try {
+      const newTag = await createTag({
+        name: data.name,
+        color: data.color,
+        description: null,
+      });
+      return newTag ? { id: newTag.id, name: newTag.name, color: newTag.color } : null;
+    } catch (err) {
+      console.error('Failed to create tag:', err);
+      return null;
+    }
+  }, [createTag]);
+
   const handleCreateCategory = useCallback(async (data: { name: string; icon: string; color: string; parent_id: string }) => {
     try {
       await createCategory({
@@ -970,6 +1197,21 @@ function MainApp() {
       alert('Failed to create category.');
     }
   }, [createCategory]);
+
+  const handleUpdateCategory = useCallback(async (data: { id: string; name: string; icon: string; color: string; parent_id: string }) => {
+    try {
+      await updateCategory(data.id, {
+        name: data.name,
+        icon: data.icon,
+        color: data.color,
+        parent_id: data.parent_id || null,
+      });
+      setEditingCategory(null);
+    } catch (err) {
+      console.error('Failed to update category:', err);
+      alert('Failed to update category.');
+    }
+  }, [updateCategory]);
 
   const handleDeleteItem = useCallback(async (itemId: string) => {
     try {
@@ -1031,23 +1273,68 @@ function MainApp() {
   }, [items]);
 
   // Item Card Component
-  const ItemCard = useCallback(({ item, onEdit }: { item: ItemWithRelations; onEdit: (item: ItemWithRelations) => void }) => (
-    <div className={`${bgCard} rounded-lg border ${borderColor} overflow-hidden hover:shadow-lg transition-shadow relative`}>
-      {/* Item Image */}
-      {item.image_url ? (
-        <div className="relative w-full h-32 bg-gray-100">
-          <img 
-            src={item.image_url} 
-            alt={item.name}
-            className="w-full h-full object-cover"
-          />
-          {/* Overlay for menu button */}
-          <div className="absolute top-2 right-2">
+  const ItemCard = useCallback(({ item, onEdit }: { item: ItemWithRelations; onEdit: (item: ItemWithRelations) => void }) => {
+    // Check if expiring soon (within 30 days)
+    const isExpiringSoon = item.expiration_date && new Date(item.expiration_date) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const isExpired = item.expiration_date && new Date(item.expiration_date) < new Date();
+    
+    return (
+      <div className={`${bgCard} rounded-lg border ${item.needs_replacement ? 'border-orange-400' : borderColor} overflow-hidden hover:shadow-lg transition-shadow relative`}>
+        {/* Item Image */}
+        {item.image_url ? (
+          <div className="relative w-full h-32 bg-gray-100">
+            <img 
+              src={item.image_url} 
+              alt={item.name}
+              className="w-full h-full object-cover"
+            />
+            {/* Overlay for menu button */}
+            <div className="absolute top-2 right-2">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setShowItemMenu(showItemMenu === item.id ? null : item.id); }}
+                className="p-1 rounded bg-black/30 hover:bg-black/50 text-white"
+              >
+                <MoreVertical size={16} />
+              </button>
+              
+              {showItemMenu === item.id && (
+                <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10 overflow-hidden`}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(item); setShowItemMenu(null); }}
+                    className={`w-full px-3 py-2 text-left text-sm ${textPrimary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} flex items-center gap-2`}
+                  >
+                    <Edit2 size={14} /> Edit
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
+                    className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2"
+                  >
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* Favorite button on image */}
+            <button 
+              onClick={() => toggleFavorite(item.id)} 
+              className="absolute top-2 left-2 p-1 rounded bg-black/30 hover:bg-black/50"
+            >
+              {item.is_favorite ? <Star size={18} className="text-yellow-400 fill-yellow-400" /> : <StarOff size={18} className="text-white" />}
+            </button>
+            {/* Needs replacement badge */}
+            {item.needs_replacement && (
+              <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-orange-500 text-white text-xs rounded-full flex items-center gap-1">
+                <RefreshCw size={10} /> Replace
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="absolute top-2 right-2 z-10">
             <button 
               onClick={(e) => { e.stopPropagation(); setShowItemMenu(showItemMenu === item.id ? null : item.id); }}
-              className="p-1 rounded bg-black/30 hover:bg-black/50 text-white"
+              className={`p-1 rounded hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''}`}
             >
-              <MoreVertical size={16} />
+              <MoreVertical size={16} className={textSecondary} />
             </button>
             
             {showItemMenu === item.id && (
@@ -1067,95 +1354,76 @@ function MainApp() {
               </div>
             )}
           </div>
-          {/* Favorite button on image */}
-          <button 
-            onClick={() => toggleFavorite(item.id)} 
-            className="absolute top-2 left-2 p-1 rounded bg-black/30 hover:bg-black/50"
-          >
-            {item.is_favorite ? <Star size={18} className="text-yellow-400 fill-yellow-400" /> : <StarOff size={18} className="text-white" />}
-          </button>
-        </div>
-      ) : (
-        <div className="absolute top-2 right-2 z-10">
-          <button 
-            onClick={(e) => { e.stopPropagation(); setShowItemMenu(showItemMenu === item.id ? null : item.id); }}
-            className={`p-1 rounded hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''}`}
-          >
-            <MoreVertical size={16} className={textSecondary} />
-          </button>
-          
-          {showItemMenu === item.id && (
-            <div className={`absolute right-0 mt-1 w-32 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-10 overflow-hidden`}>
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(item); setShowItemMenu(null); }}
-                className={`w-full px-3 py-2 text-left text-sm ${textPrimary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} flex items-center gap-2`}
-              >
-                <Edit2 size={14} /> Edit
+        )}
+
+        <div className="p-4">
+          <div className="flex justify-between items-start mb-2 pr-8">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className={`font-semibold ${textPrimary}`}>{item.name}</h3>
+                {item.is_essential && <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Essential</span>}
+                {item.needs_replacement && !item.image_url && <span className="text-xs bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded flex items-center gap-0.5"><RefreshCw size={10} /> Replace</span>}
+              </div>
+              <p className={`text-sm ${textSecondary}`}>{item.category?.name || 'Uncategorized'}</p>
+            </div>
+            {!item.image_url && (
+              <button onClick={() => toggleFavorite(item.id)} className="p-1">
+                {item.is_favorite ? <Star size={20} className="text-yellow-500 fill-yellow-500" /> : <StarOff size={20} className={textSecondary} />}
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
-                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2"
-              >
-                <Trash2 size={14} /> Delete
-              </button>
+            )}
+          </div>
+
+          {/* Tags display */}
+          {item.tags && item.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {item.tags.map(tag => (
+                <span 
+                  key={tag.id} 
+                  className="px-2 py-0.5 rounded-full text-xs"
+                  style={{ backgroundColor: tag.color + '30', color: darkMode ? '#fff' : tag.color }}
+                >
+                  {tag.name}
+                </span>
+              ))}
             </div>
           )}
-        </div>
-      )}
 
-      <div className="p-4">
-        <div className="flex justify-between items-start mb-2 pr-8">
-          <div className="flex-1">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h3 className={`font-semibold ${textPrimary}`}>{item.name}</h3>
-              {item.is_essential && <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Essential</span>}
+              <button onClick={() => updateQuantity(item.id, -1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>-</button>
+              <span className={`font-bold text-xl ${textPrimary} min-w-[60px] text-center`}>{item.quantity} <span className="text-sm font-normal">{item.unit}</span></span>
+              <button onClick={() => updateQuantity(item.id, 1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>+</button>
             </div>
-            <p className={`text-sm ${textSecondary}`}>{item.category?.name || 'Uncategorized'}</p>
+            <StatusBadge status={item.status} />
           </div>
-          {!item.image_url && (
-            <button onClick={() => toggleFavorite(item.id)} className="p-1">
-              {item.is_favorite ? <Star size={20} className="text-yellow-500 fill-yellow-500" /> : <StarOff size={20} className={textSecondary} />}
-            </button>
+
+          {item.min_threshold && item.status !== 'in_stock' && (
+            <div className="flex items-center gap-1 text-yellow-600 text-sm mb-2">
+              <AlertTriangle size={14} /><span>Below threshold ({item.min_threshold})</span>
+            </div>
           )}
-        </div>
 
-        {/* Tags display */}
-        {item.tags && item.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-2">
-            {item.tags.map(tag => (
-              <span 
-                key={tag.id} 
-                className="px-2 py-0.5 rounded-full text-xs"
-                style={{ backgroundColor: tag.color + '30', color: darkMode ? '#fff' : tag.color }}
-              >
-                {tag.name}
-              </span>
-            ))}
+          {/* Expiration date warning */}
+          {item.expiration_date && (
+            <div className={`flex items-center gap-1 text-sm mb-2 ${isExpired ? 'text-red-500' : isExpiringSoon ? 'text-orange-500' : textSecondary}`}>
+              <Calendar size={14} />
+              <span>{isExpired ? 'Expired' : isExpiringSoon ? 'Expires' : 'Exp.'} {new Date(item.expiration_date).toLocaleDateString()}</span>
+            </div>
+          )}
+
+          {/* Notes preview */}
+          {item.notes && (
+            <div className={`text-xs ${textSecondary} mb-2 line-clamp-2 italic`}>"{item.notes}"</div>
+          )}
+
+          <div className={`text-xs ${textSecondary} space-y-1`}>
+            {item.primary_location && <div className="flex items-center gap-1"><MapPin size={12} /><span>{item.primary_location}</span></div>}
+            <div className="flex items-center gap-1"><Clock size={12} /><span>Updated {formatRelativeTime(item.updated_at)}</span></div>
           </div>
-        )}
-
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <button onClick={() => updateQuantity(item.id, -1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>-</button>
-            <span className={`font-bold text-xl ${textPrimary} min-w-[60px] text-center`}>{item.quantity} <span className="text-sm font-normal">{item.unit}</span></span>
-            <button onClick={() => updateQuantity(item.id, 1)} className={`w-8 h-8 rounded-full ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} flex items-center justify-center font-bold`}>+</button>
-          </div>
-          <StatusBadge status={item.status} />
-        </div>
-
-        {item.min_threshold && item.status !== 'in_stock' && (
-          <div className="flex items-center gap-1 text-yellow-600 text-sm mb-2">
-            <AlertTriangle size={14} /><span>Below threshold ({item.min_threshold})</span>
-          </div>
-        )}
-
-        <div className={`text-xs ${textSecondary} space-y-1`}>
-          {item.primary_location && <div className="flex items-center gap-1"><MapPin size={12} /><span>{item.primary_location}</span></div>}
-          <div className="flex items-center gap-1"><Clock size={12} /><span>Updated {formatRelativeTime(item.updated_at)}</span></div>
         </div>
       </div>
-    </div>
-  ), [bgCard, borderColor, darkMode, textPrimary, textSecondary, showItemMenu, toggleFavorite, updateQuantity]);
+    );
+  }, [bgCard, borderColor, darkMode, textPrimary, textSecondary, showItemMenu, toggleFavorite, updateQuantity]);
 
   // Location Tree Component
   const LocationTree = useCallback(({ locs, level = 0 }: { locs: LocationWithChildren[]; level?: number }) => (
@@ -1189,12 +1457,24 @@ function MainApp() {
   ), [darkMode, textPrimary, textSecondary, expandedLocations, handleDeleteLocation]);
 
   // Sidebar Component
+  // Get app icon from localStorage
+  const [appIcon, setAppIconState] = useState(localStorage.getItem('appIcon') || '📦');
+  
+  // Listen for localStorage changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setAppIconState(localStorage.getItem('appIcon') || '📦');
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
     <div className={`${mobile ? 'w-full' : 'w-56'} ${bgCard} h-full flex flex-col border-r ${borderColor}`}>
       <div className={`p-4 border-b ${borderColor} flex items-center justify-between`}>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center"><Package size={18} className="text-white" /></div>
-          <span className={`font-bold text-lg ${textPrimary}`}>HomeBase</span>
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-lg">{appIcon}</div>
+          <span className={`font-bold text-lg ${textPrimary}`}>Inventorois</span>
         </div>
         {mobile && <button onClick={() => setMobileSidebarOpen(false)}><X size={24} className={textPrimary} /></button>}
       </div>
@@ -1294,21 +1574,49 @@ function MainApp() {
     );
   };
 
+  // Filter items based on search and filters
+  const filteredItems = items.filter(item => {
+    // Search filter
+    if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    // Category filter
+    if (filterCategory && item.category_id !== filterCategory) return false;
+    // Location filter
+    if (filterLocation && !item.locations?.some(l => l.location_id === filterLocation)) return false;
+    // Status filter
+    if (filterStatus && item.status !== filterStatus) return false;
+    // Essential filter
+    if (filterEssential && !item.is_essential) return false;
+    return true;
+  });
+
+  // Group items by location for "by location" view
+  const itemsByLocation = filteredItems.reduce((acc, item) => {
+    const locationId = item.locations?.find(l => l.is_primary)?.location_id || 'no-location';
+    const locationName = item.primary_location || 'No Location';
+    if (!acc[locationId]) {
+      acc[locationId] = { name: locationName, items: [] };
+    }
+    acc[locationId].items.push(item);
+    return acc;
+  }, {} as Record<string, { name: string; items: typeof items }>);
+
   const Inventory = () => (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center justify-between">
         <div className="flex items-center gap-2 flex-1 max-w-md">
           <div className={`flex-1 flex items-center gap-2 ${bgCard} border ${borderColor} rounded-lg px-3 py-2`}>
             <Search size={18} className={textSecondary} />
-            <input type="text" placeholder="Search items..." value={filters.search || ''} onChange={(e) => setSearch(e.target.value)} className={`flex-1 bg-transparent outline-none ${textPrimary}`} />
+            <input type="text" placeholder="Search items..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className={`flex-1 bg-transparent outline-none ${textPrimary}`} />
+            {searchQuery && <button onClick={() => setSearchQuery('')} className={textSecondary}><X size={16} /></button>}
           </div>
           <button onClick={toggleFilters} className={`p-2 rounded-lg border ${borderColor} ${bgCard} ${showFilters ? 'ring-2 ring-blue-500' : ''}`}><Filter size={18} className={textSecondary} /></button>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleExportCSV} className={`p-2 rounded-lg border ${borderColor} ${bgCard}`} title="Export CSV"><Download size={18} className={textSecondary} /></button>
           <div className={`flex rounded-lg border ${borderColor} overflow-hidden`}>
-            <button onClick={() => setViewMode('grid')} className={`p-2 ${viewMode === 'grid' ? 'bg-blue-500 text-white' : bgCard}`}><Grid size={18} /></button>
-            <button onClick={() => setViewMode('list')} className={`p-2 ${viewMode === 'list' ? 'bg-blue-500 text-white' : bgCard}`}><List size={18} /></button>
+            <button onClick={() => { setViewMode('grid'); setInventoryViewMode('all'); }} className={`p-2 ${viewMode === 'grid' && inventoryViewMode === 'all' ? 'bg-blue-500 text-white' : bgCard}`} title="Grid View"><Grid size={18} /></button>
+            <button onClick={() => { setViewMode('list'); setInventoryViewMode('all'); }} className={`p-2 ${viewMode === 'list' && inventoryViewMode === 'all' ? 'bg-blue-500 text-white' : bgCard}`} title="List View"><List size={18} /></button>
+            <button onClick={() => setInventoryViewMode('byLocation')} className={`p-2 ${inventoryViewMode === 'byLocation' ? 'bg-blue-500 text-white' : bgCard}`} title="By Location"><MapPin size={18} /></button>
           </div>
           <button onClick={() => { setItemFormInitialData(null); openAddModal(); }} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /><span className="hidden sm:inline">Add Item</span></button>
         </div>
@@ -1316,17 +1624,24 @@ function MainApp() {
 
       {showFilters && (
         <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
               <label className={`text-sm ${textSecondary} block mb-1`}>Category</label>
-              <select value={filters.category_id || ''} onChange={(e) => setFilter('category_id', e.target.value || undefined)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
+              <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
                 <option value="">All Categories</option>
                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
               </select>
             </div>
             <div>
+              <label className={`text-sm ${textSecondary} block mb-1`}>Location</label>
+              <select value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
+                <option value="">All Locations</option>
+                {locationOptions.map(loc => <option key={loc.id} value={loc.id}>{loc.path}</option>)}
+              </select>
+            </div>
+            <div>
               <label className={`text-sm ${textSecondary} block mb-1`}>Status</label>
-              <select value={filters.status || ''} onChange={(e) => setFilter('status', e.target.value as any || undefined)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
+              <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
                 <option value="">All Statuses</option>
                 <option value="in_stock">In Stock</option>
                 <option value="low_stock">Low Stock</option>
@@ -1334,26 +1649,75 @@ function MainApp() {
               </select>
             </div>
             <div className="flex items-end gap-4">
-              <label className={`flex items-center gap-2 ${textPrimary} text-sm`}><input type="checkbox" checked={filters.is_essential || false} onChange={(e) => setFilter('is_essential', e.target.checked || undefined)} />Essentials</label>
-              <label className={`flex items-center gap-2 ${textPrimary} text-sm`}><input type="checkbox" checked={filters.is_favorite || false} onChange={(e) => setFilter('is_favorite', e.target.checked || undefined)} />Favorites</label>
+              <label className={`flex items-center gap-2 ${textPrimary} text-sm`}><input type="checkbox" checked={filterEssential} onChange={(e) => setFilterEssential(e.target.checked)} />Essentials Only</label>
             </div>
-            <div className="flex items-end"><button onClick={clearFilters} className="text-sm text-blue-500 hover:underline">Clear Filters</button></div>
+            <div className="flex items-end">
+              <button onClick={() => { setFilterCategory(''); setFilterLocation(''); setFilterStatus(''); setFilterEssential(false); setSearchQuery(''); }} className="text-sm text-blue-500 hover:underline">Clear All</button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {/* Active filters display */}
+      {(searchQuery || filterCategory || filterLocation || filterStatus || filterEssential) && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className={`text-sm ${textSecondary}`}>Showing {filteredItems.length} of {items.length} items:</span>
+          {searchQuery && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">Search: "{searchQuery}" <button onClick={() => setSearchQuery('')}><X size={12} /></button></span>}
+          {filterCategory && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{categories.find(c => c.id === filterCategory)?.name} <button onClick={() => setFilterCategory('')}><X size={12} /></button></span>}
+          {filterLocation && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{locationOptions.find(l => l.id === filterLocation)?.path} <button onClick={() => setFilterLocation('')}><X size={12} /></button></span>}
+          {filterStatus && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{filterStatus.replace('_', ' ')} <button onClick={() => setFilterStatus('')}><X size={12} /></button></span>}
+          {filterEssential && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">Essential <button onClick={() => setFilterEssential(false)}><X size={12} /></button></span>}
         </div>
       )}
 
       {itemsLoading ? (
         <div className="flex items-center justify-center py-12"><Loader2 size={32} className="animate-spin text-blue-500" /></div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className={`${bgCard} border ${borderColor} rounded-lg p-12 text-center`}>
           <Package size={48} className={`mx-auto mb-4 ${textSecondary}`} />
-          <h3 className={`text-lg font-medium ${textPrimary} mb-2`}>No items yet</h3>
-          <p className={`${textSecondary} mb-4`}>Start building your inventory.</p>
-          <button onClick={() => { setItemFormInitialData(null); openAddModal(); }} className="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /> Add Your First Item</button>
+          <h3 className={`text-lg font-medium ${textPrimary} mb-2`}>{items.length === 0 ? 'No items yet' : 'No items match your filters'}</h3>
+          <p className={`${textSecondary} mb-4`}>{items.length === 0 ? 'Start building your inventory.' : 'Try adjusting your filters.'}</p>
+          {items.length === 0 && <button onClick={() => { setItemFormInitialData(null); openAddModal(); }} className="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /> Add Your First Item</button>}
+        </div>
+      ) : inventoryViewMode === 'byLocation' ? (
+        // View by location
+        <div className="space-y-6">
+          {Object.entries(itemsByLocation).map(([locationId, { name: locName, items: locItems }]) => (
+            <div key={locationId} className={`${bgCard} border ${borderColor} rounded-lg overflow-hidden`}>
+              <div className={`px-4 py-3 border-b ${borderColor} flex items-center gap-2`}>
+                <MapPin size={18} className={textSecondary} />
+                <h3 className={`font-semibold ${textPrimary}`}>{locName}</h3>
+                <span className={`text-sm ${textSecondary}`}>({locItems.length} items)</span>
+              </div>
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {locItems.map(item => (
+                  <div key={item.id} className={`border ${borderColor} rounded-lg p-3 hover:shadow-md transition-shadow`}>
+                    <div className="flex items-start gap-3">
+                      {item.image_url && <img src={item.image_url} alt={item.name} className="w-12 h-12 rounded object-cover" />}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-medium ${textPrimary} truncate`}>{item.name}</span>
+                          {item.is_essential && <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Essential</span>}
+                        </div>
+                        <div className={`text-sm ${textSecondary}`}>{item.category?.name || 'Uncategorized'}</div>
+                        <div className="flex items-center gap-2 mt-2">
+                          <button onClick={() => updateQuantity(item.id, -1)} className={`w-6 h-6 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} flex items-center justify-center text-sm font-bold`}>-</button>
+                          <span className={`font-medium ${textPrimary}`}>{item.quantity} {item.unit}</span>
+                          <button onClick={() => updateQuantity(item.id, 1)} className={`w-6 h-6 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} flex items-center justify-center text-sm font-bold`}>+</button>
+                          <StatusBadge status={item.status} />
+                        </div>
+                      </div>
+                      <button onClick={() => handleEditItem(item)} className={`p-1 ${textSecondary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} rounded`}><Edit2 size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' : 'space-y-2'}>
-          {items.map(item => viewMode === 'grid' ? <ItemCard key={item.id} item={item} onEdit={handleEditItem} /> : (
+          {filteredItems.map(item => viewMode === 'grid' ? <ItemCard key={item.id} item={item} onEdit={handleEditItem} /> : (
             <div key={item.id} className={`${bgCard} border ${borderColor} rounded-lg p-3 flex items-center gap-4`}>
               <button onClick={() => toggleFavorite(item.id)}>{item.is_favorite ? <Star size={18} className="text-yellow-500 fill-yellow-500" /> : <StarOff size={18} className={textSecondary} />}</button>
               {item.image_url && <img src={item.image_url} alt={item.name} className="w-10 h-10 rounded object-cover" />}
@@ -1390,7 +1754,10 @@ function MainApp() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xl" style={{ backgroundColor: cat.color + '20' }}>{cat.icon}</div>
               <div className="flex-1"><h3 className={`font-semibold ${textPrimary}`}>{cat.name}</h3><p className={`text-sm ${textSecondary}`}>{cat.item_count || 0} items</p></div>
-              {!cat.is_system && <button onClick={() => handleDeleteCategory(cat.id)} className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:bg-red-100 rounded"><Trash2 size={16} /></button>}
+              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                <button onClick={() => setEditingCategory({ id: cat.id, name: cat.name, icon: cat.icon, color: cat.color, parent_id: cat.parent_id })} className={`p-1 ${textSecondary} hover:bg-gray-100 ${darkMode ? 'hover:bg-gray-700' : ''} rounded`}><Edit2 size={16} /></button>
+                {!cat.is_system && <button onClick={() => handleDeleteCategory(cat.id)} className="p-1 text-red-500 hover:bg-red-100 rounded"><Trash2 size={16} /></button>}
+              </div>
             </div>
           </div>
         ))}
@@ -1432,33 +1799,160 @@ function MainApp() {
     </div>
   );
 
-  const TemplatesPage = () => (
-    <div className="space-y-4">
-      <h2 className={`text-xl font-semibold ${textPrimary}`}>Item Templates</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {templates.map(template => (
-          <div key={template.id} className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <h3 className={`font-semibold ${textPrimary}`}>{template.name}</h3>
-            <div className={`text-sm ${textSecondary} mb-3`}>Unit: {template.template_data.unit || 'units'}</div>
-            <button
-              onClick={() => {
-                useTemplate(template.id);
-                setItemFormInitialData({
-                  name: template.name,
-                  unit: template.template_data.unit || 'units',
-                  min_threshold: template.template_data.min_threshold?.toString() || '',
-                  is_essential: template.template_data.is_essential || false,
-                });
-                openAddModal();
-              }}
-              className="w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 flex items-center justify-center gap-2"
-            ><Plus size={16} /> Use Template</button>
+  const TemplatesPage = () => {
+    const [showCreateTemplate, setShowCreateTemplate] = useState(false);
+    const [newTemplateName, setNewTemplateName] = useState('');
+    const [newTemplateUnit, setNewTemplateUnit] = useState('units');
+    const [newTemplateThreshold, setNewTemplateThreshold] = useState('');
+    const [newTemplateEssential, setNewTemplateEssential] = useState(false);
+
+    const handleCreateTemplate = async () => {
+      if (!newTemplateName.trim()) return;
+      try {
+        await createTemplate({
+          name: newTemplateName.trim(),
+          description: null,
+          template_data: {
+            unit: newTemplateUnit,
+            min_threshold: newTemplateThreshold ? parseInt(newTemplateThreshold) : undefined,
+            is_essential: newTemplateEssential,
+          },
+          category_id: null,
+          is_system: false,
+          use_count: 0,
+        });
+        setNewTemplateName('');
+        setNewTemplateUnit('units');
+        setNewTemplateThreshold('');
+        setNewTemplateEssential(false);
+        setShowCreateTemplate(false);
+      } catch (err) {
+        console.error('Failed to create template:', err);
+        alert('Failed to create template.');
+      }
+    };
+
+    const handleDeleteTemplate = async (id: string) => {
+      if (confirm('Delete this template?')) {
+        try {
+          await deleteTemplate(id);
+        } catch (err) {
+          console.error('Failed to delete template:', err);
+        }
+      }
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className={`text-xl font-semibold ${textPrimary}`}>Item Templates</h2>
+            <p className={`text-sm ${textSecondary}`}>Save common item configurations for quick reuse</p>
           </div>
-        ))}
-        {templates.length === 0 && <p className={textSecondary}>No templates available.</p>}
+          <button onClick={() => setShowCreateTemplate(!showCreateTemplate)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+            <Plus size={18} /> Create Template
+          </button>
+        </div>
+
+        {showCreateTemplate && (
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <h3 className={`font-medium ${textPrimary} mb-3`}>New Template</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className={`text-sm ${textSecondary} block mb-1`}>Template Name *</label>
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="e.g., Cleaning Supplies"
+                  className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+                />
+              </div>
+              <div>
+                <label className={`text-sm ${textSecondary} block mb-1`}>Default Unit</label>
+                <select value={newTemplateUnit} onChange={(e) => setNewTemplateUnit(e.target.value)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
+                  <option value="units">units</option>
+                  <option value="pcs">pcs</option>
+                  <option value="rolls">rolls</option>
+                  <option value="bottles">bottles</option>
+                  <option value="boxes">boxes</option>
+                  <option value="bags">bags</option>
+                  <option value="cans">cans</option>
+                </select>
+              </div>
+              <div>
+                <label className={`text-sm ${textSecondary} block mb-1`}>Min Threshold</label>
+                <input
+                  type="number"
+                  value={newTemplateThreshold}
+                  onChange={(e) => setNewTemplateThreshold(e.target.value)}
+                  placeholder="Alert when below"
+                  className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+                />
+              </div>
+              <div className="flex items-end gap-3">
+                <label className={`flex items-center gap-2 ${textPrimary} text-sm`}>
+                  <input type="checkbox" checked={newTemplateEssential} onChange={(e) => setNewTemplateEssential(e.target.checked)} />
+                  Essential
+                </label>
+                <button onClick={handleCreateTemplate} disabled={!newTemplateName.trim()} className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">
+                  Save
+                </button>
+                <button onClick={() => setShowCreateTemplate(false)} className={`px-4 py-2 rounded-lg border ${borderColor} ${textPrimary}`}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {templates.length === 0 ? (
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-12 text-center`}>
+            <FileText size={48} className={`mx-auto mb-4 ${textSecondary}`} />
+            <h3 className={`text-lg font-medium ${textPrimary} mb-2`}>No templates yet</h3>
+            <p className={`${textSecondary} mb-4`}>Create templates for items you add frequently to save time.</p>
+            <button onClick={() => setShowCreateTemplate(true)} className="inline-flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+              <Plus size={18} /> Create Your First Template
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {templates.filter(t => !t.is_system).map(template => (
+              <div key={template.id} className={`${bgCard} border ${borderColor} rounded-lg p-4 group`}>
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className={`font-semibold ${textPrimary}`}>{template.name}</h3>
+                  <button onClick={() => handleDeleteTemplate(template.id)} className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:bg-red-100 rounded">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className={`text-sm ${textSecondary} space-y-1 mb-3`}>
+                  <div>Unit: {template.template_data.unit || 'units'}</div>
+                  {template.template_data.min_threshold && <div>Min threshold: {template.template_data.min_threshold}</div>}
+                  {template.template_data.is_essential && <div className="text-blue-500">Essential item</div>}
+                  <div className={textSecondary}>Used {template.use_count || 0} times</div>
+                </div>
+                <button
+                  onClick={() => {
+                    useTemplate(template.id);
+                    setItemFormInitialData({
+                      name: '',
+                      unit: template.template_data.unit || 'units',
+                      min_threshold: template.template_data.min_threshold?.toString() || '',
+                      is_essential: template.template_data.is_essential || false,
+                    });
+                    openAddModal();
+                  }}
+                  className="w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 flex items-center justify-center gap-2"
+                >
+                  <Plus size={16} /> Use Template
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   const HistoryPage = () => (
     <div className="space-y-4">
@@ -1481,24 +1975,506 @@ function MainApp() {
     </div>
   );
 
-  const SettingsPage = () => (
-    <div className="space-y-6 max-w-2xl">
-      <h2 className={`text-xl font-semibold ${textPrimary}`}>Settings</h2>
-      <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-        <div className="flex items-center justify-between">
-          <div><div className={textPrimary}>Dark Mode</div><div className={`text-sm ${textSecondary}`}>Use dark theme</div></div>
-          <button onClick={toggleDarkMode} className={`w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-blue-500' : 'bg-gray-300'}`}><div className={`w-5 h-5 rounded-full bg-white transform transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-0.5'}`} /></button>
+  // ============================================
+  // ANALYSIS PAGE
+  // ============================================
+  const AnalysisPage = () => {
+    // Calculate various analytics
+    const totalItems = items.length;
+    const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+    const totalValue = items.reduce((sum, item) => sum + (item.quantity * (item.purchase_price || 0)), 0);
+    
+    const lowStockItems = items.filter(item => item.status === 'low_stock');
+    const outOfStockItems = items.filter(item => item.status === 'out_of_stock');
+    const essentialItems = items.filter(item => item.is_essential);
+    const essentialLowStock = essentialItems.filter(item => item.status !== 'in_stock');
+    
+    // Items expiring soon (within 30 days)
+    const today = new Date();
+    const thirtyDaysFromNow = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiringItems = items.filter(item => {
+      if (!item.expiration_date) return false;
+      const expDate = new Date(item.expiration_date);
+      return expDate <= thirtyDaysFromNow && expDate >= today;
+    });
+    
+    // Items needing replacement
+    const replacementItems = items.filter(item => item.needs_replacement);
+    
+    // Category breakdown
+    const categoryBreakdown = categories.map(cat => ({
+      ...cat,
+      itemCount: items.filter(item => item.category_id === cat.id).length,
+      totalValue: items.filter(item => item.category_id === cat.id).reduce((sum, item) => sum + (item.quantity * (item.purchase_price || 0)), 0)
+    })).filter(cat => cat.itemCount > 0).sort((a, b) => b.itemCount - a.itemCount);
+    
+    // Location breakdown
+    const locationBreakdown = locationOptions.map(loc => {
+      const locItems = items.filter(item => item.locations?.some(l => l.location_id === loc.id));
+      return {
+        ...loc,
+        itemCount: locItems.length,
+        totalValue: locItems.reduce((sum, item) => sum + (item.quantity * (item.purchase_price || 0)), 0)
+      };
+    }).filter(loc => loc.itemCount > 0).sort((a, b) => b.itemCount - a.itemCount);
+
+    return (
+      <div className="space-y-6">
+        <h2 className={`text-xl font-semibold ${textPrimary}`}>Inventory Analysis</h2>
+        
+        {/* Key Metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center"><Package size={20} className="text-blue-600" /></div>
+              <div><div className={`text-2xl font-bold ${textPrimary}`}>{totalItems}</div><div className={`text-sm ${textSecondary}`}>Total Items</div></div>
+            </div>
+          </div>
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center"><DollarSign size={20} className="text-green-600" /></div>
+              <div><div className={`text-2xl font-bold ${textPrimary}`}>${totalValue.toFixed(2)}</div><div className={`text-sm ${textSecondary}`}>Total Value</div></div>
+            </div>
+          </div>
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center"><TrendingDown size={20} className="text-yellow-600" /></div>
+              <div><div className={`text-2xl font-bold ${textPrimary}`}>{lowStockItems.length}</div><div className={`text-sm ${textSecondary}`}>Low Stock</div></div>
+            </div>
+          </div>
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center"><AlertCircle size={20} className="text-red-600" /></div>
+              <div><div className={`text-2xl font-bold ${textPrimary}`}>{outOfStockItems.length}</div><div className={`text-sm ${textSecondary}`}>Out of Stock</div></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Alerts Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Low Stock Essentials */}
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><AlertTriangle size={18} className="text-yellow-500" /> Essential Items - Low/Out of Stock</h3>
+            {essentialLowStock.length > 0 ? (
+              <div className="space-y-2">
+                {essentialLowStock.slice(0, 5).map(item => (
+                  <div key={item.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <span className={textPrimary}>{item.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm ${item.status === 'out_of_stock' ? 'text-red-500' : 'text-yellow-500'}`}>{item.quantity} {item.unit}</span>
+                      <StatusBadge status={item.status} />
+                    </div>
+                  </div>
+                ))}
+                {essentialLowStock.length > 5 && <p className={`text-sm ${textSecondary}`}>+{essentialLowStock.length - 5} more</p>}
+              </div>
+            ) : (
+              <p className={`${textSecondary} text-sm`}>All essential items are in stock!</p>
+            )}
+          </div>
+
+          {/* Expiring Soon */}
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><Calendar size={18} className="text-orange-500" /> Expiring Soon (30 days)</h3>
+            {expiringItems.length > 0 ? (
+              <div className="space-y-2">
+                {expiringItems.slice(0, 5).map(item => (
+                  <div key={item.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <span className={textPrimary}>{item.name}</span>
+                    <span className="text-sm text-orange-500">{new Date(item.expiration_date!).toLocaleDateString()}</span>
+                  </div>
+                ))}
+                {expiringItems.length > 5 && <p className={`text-sm ${textSecondary}`}>+{expiringItems.length - 5} more</p>}
+              </div>
+            ) : (
+              <p className={`${textSecondary} text-sm`}>No items expiring soon.</p>
+            )}
+          </div>
+
+          {/* Needs Replacement */}
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><RefreshCw size={18} className="text-orange-500" /> Needs Replacement</h3>
+            {replacementItems.length > 0 ? (
+              <div className="space-y-2">
+                {replacementItems.slice(0, 5).map(item => (
+                  <div key={item.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                    <span className={textPrimary}>{item.name}</span>
+                    <span className={`text-sm ${textSecondary}`}>{item.category?.name}</span>
+                  </div>
+                ))}
+                {replacementItems.length > 5 && <p className={`text-sm ${textSecondary}`}>+{replacementItems.length - 5} more</p>}
+              </div>
+            ) : (
+              <p className={`${textSecondary} text-sm`}>No items flagged for replacement.</p>
+            )}
+          </div>
+
+          {/* Category Breakdown */}
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><PieChart size={18} className="text-blue-500" /> By Category</h3>
+            <div className="space-y-2">
+              {categoryBreakdown.slice(0, 6).map(cat => (
+                <div key={cat.id} className="flex items-center gap-2">
+                  <div className="w-8 text-center">{cat.icon}</div>
+                  <div className="flex-1">
+                    <div className="flex justify-between items-center">
+                      <span className={`text-sm ${textPrimary}`}>{cat.name}</span>
+                      <span className={`text-sm ${textSecondary}`}>{cat.itemCount} items</span>
+                    </div>
+                    <div className={`h-2 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} overflow-hidden`}>
+                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(cat.itemCount / totalItems) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Location Breakdown */}
+        <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+          <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><MapPin size={18} className="text-green-500" /> By Location</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {locationBreakdown.slice(0, 9).map(loc => (
+              <div key={loc.id} className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                <div className={`font-medium ${textPrimary} text-sm truncate`}>{loc.path}</div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className={`text-sm ${textSecondary}`}>{loc.itemCount} items</span>
+                  <span className={`text-sm text-green-600`}>${loc.totalValue.toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-      <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}><button onClick={handleExportCSV} className={`flex items-center gap-2 px-4 py-2 border ${borderColor} rounded-lg ${textPrimary}`}><Download size={18} /> Export to CSV</button></div>
-      <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}><p className={`text-sm ${textSecondary} mb-4`}>Signed in as {user?.email}</p><button onClick={() => signOut()} className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"><LogOut size={18} /> Sign Out</button></div>
-    </div>
-  );
+    );
+  };
+
+  // ============================================
+  // WISHLIST PAGE
+  // ============================================
+  const WishlistPage = () => {
+    const [wishlistItems, setWishlistItems] = useState<any[]>([]);
+    const [showAddWishlist, setShowAddWishlist] = useState(false);
+    const [newItemName, setNewItemName] = useState('');
+    const [newItemNotes, setNewItemNotes] = useState('');
+    const [newItemPriority, setNewItemPriority] = useState('medium');
+    const [newItemUrl, setNewItemUrl] = useState('');
+    const [loadingWishlist, setLoadingWishlist] = useState(true);
+
+    // Load wishlist from Supabase
+    useEffect(() => {
+      const loadWishlist = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('wishlist')
+            .select('*')
+            .order('created_at', { ascending: false });
+          if (!error && data) setWishlistItems(data);
+        } catch (err) {
+          console.error('Failed to load wishlist:', err);
+        }
+        setLoadingWishlist(false);
+      };
+      loadWishlist();
+    }, []);
+
+    const addWishlistItem = async () => {
+      if (!newItemName.trim()) return;
+      const { data: userData } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('wishlist')
+        .insert({ 
+          name: newItemName.trim(), 
+          notes: newItemNotes || null,
+          priority: newItemPriority,
+          url: newItemUrl || null,
+          created_by: userData.user?.id
+        })
+        .select()
+        .single();
+      if (!error && data) {
+        setWishlistItems([data, ...wishlistItems]);
+        setNewItemName('');
+        setNewItemNotes('');
+        setNewItemPriority('medium');
+        setNewItemUrl('');
+        setShowAddWishlist(false);
+      }
+    };
+
+    const markAsPurchased = async (wishlistItem: any) => {
+      // Add to inventory
+      setItemFormInitialData({ name: wishlistItem.name, notes: wishlistItem.notes || '' });
+      openAddModal();
+      // Remove from wishlist
+      await supabase.from('wishlist').delete().eq('id', wishlistItem.id);
+      setWishlistItems(wishlistItems.filter(item => item.id !== wishlistItem.id));
+    };
+
+    const deleteWishlistItem = async (id: string) => {
+      await supabase.from('wishlist').delete().eq('id', id);
+      setWishlistItems(wishlistItems.filter(item => item.id !== id));
+    };
+
+    const priorityColors = { high: 'text-red-500', medium: 'text-yellow-500', low: 'text-green-500' };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className={`text-xl font-semibold ${textPrimary}`}>Wishlist</h2>
+            <p className={`text-sm ${textSecondary}`}>Items you want to acquire</p>
+          </div>
+          <button onClick={() => setShowAddWishlist(!showAddWishlist)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+            <Plus size={18} /> Add Item
+          </button>
+        </div>
+
+        {showAddWishlist && (
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-4 space-y-3`}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Item Name *</label>
+                <input
+                  type="text"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+                  placeholder="What do you want to buy?"
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Priority</label>
+                <select value={newItemPriority} onChange={(e) => setNewItemPriority(e.target.value)} className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Link/URL</label>
+              <input
+                type="url"
+                value={newItemUrl}
+                onChange={(e) => setNewItemUrl(e.target.value)}
+                className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+                placeholder="https://example.com/product"
+              />
+            </div>
+            <div>
+              <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Notes</label>
+              <textarea
+                value={newItemNotes}
+                onChange={(e) => setNewItemNotes(e.target.value)}
+                rows={2}
+                className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary} resize-none`}
+                placeholder="Size, color, specifications..."
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={addWishlistItem} disabled={!newItemName.trim()} className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50">Save</button>
+              <button onClick={() => setShowAddWishlist(false)} className={`px-4 py-2 rounded-lg border ${borderColor} ${textPrimary}`}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {loadingWishlist ? (
+          <div className="flex justify-center py-8"><Loader2 size={32} className="animate-spin text-blue-500" /></div>
+        ) : wishlistItems.length === 0 ? (
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-12 text-center`}>
+            <ShoppingCart size={48} className={`mx-auto mb-4 ${textSecondary}`} />
+            <h3 className={`text-lg font-medium ${textPrimary} mb-2`}>Your wishlist is empty</h3>
+            <p className={`${textSecondary} mb-4`}>Add items you want to buy in the future.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {wishlistItems.map(item => (
+              <div key={item.id} className={`${bgCard} border ${borderColor} rounded-lg p-4 group`}>
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className={`font-semibold ${textPrimary}`}>{item.name}</h3>
+                  <span className={`text-xs font-medium ${priorityColors[item.priority as keyof typeof priorityColors]}`}>{item.priority}</span>
+                </div>
+                {item.notes && <p className={`text-sm ${textSecondary} mb-2`}>{item.notes}</p>}
+                {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-500 hover:underline block mb-2 truncate">{item.url}</a>}
+                <div className={`text-xs ${textSecondary} mb-3`}>Added {formatRelativeTime(item.created_at)}</div>
+                <div className="flex gap-2">
+                  <button onClick={() => markAsPurchased(item)} className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+                    <CheckCircle size={14} /> Purchased
+                  </button>
+                  <button onClick={() => deleteWishlistItem(item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ============================================
+  // SETTINGS PAGE
+  // ============================================
+  const SettingsPage = () => {
+    const [users, setUsers] = useState<any[]>([]);
+    const [loadingUsers, setLoadingUsers] = useState(true);
+    const [localAppIcon, setLocalAppIcon] = useState(localStorage.getItem('appIcon') || '📦');
+    const [showIconPicker, setShowIconPicker] = useState(false);
+
+    useEffect(() => {
+      const loadUsers = async () => {
+        try {
+          // Load users from profiles table
+          const { data, error } = await supabase.from('profiles').select('*');
+          if (!error && data) setUsers(data);
+        } catch (err) {
+          console.error('Failed to load users:', err);
+        }
+        setLoadingUsers(false);
+      };
+      loadUsers();
+    }, []);
+
+    const handleIconChange = (icon: string) => {
+      setLocalAppIcon(icon);
+      localStorage.setItem('appIcon', icon);
+      setAppIconState(icon); // Update sidebar icon
+      setShowIconPicker(false);
+    };
+
+    const handleProfilePicUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !user) return;
+      
+      try {
+        const { uploadItemImage, compressImage } = await import('./services/images');
+        const compressed = await compressImage(file, 200);
+        const imageUrl = await uploadItemImage(compressed, `profile-${user.id}`);
+        await supabase.from('profiles').upsert({ id: user.id, avatar_url: imageUrl, email: user.email });
+        // Refresh users
+        const { data } = await supabase.from('profiles').select('*');
+        if (data) setUsers(data);
+      } catch (err) {
+        console.error('Failed to upload profile picture:', err);
+      }
+    };
+
+    return (
+      <div className="space-y-6 max-w-3xl">
+        <h2 className={`text-xl font-semibold ${textPrimary}`}>Settings</h2>
+        
+        {/* App Customization */}
+        <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+          <h3 className={`font-medium ${textPrimary} mb-3`}>App Customization</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className={textPrimary}>App Icon</div>
+              <div className={`text-sm ${textSecondary}`}>Click to change the Inventorois icon</div>
+            </div>
+            <div className="relative">
+              <button onClick={() => setShowIconPicker(!showIconPicker)} className={`w-12 h-12 text-2xl rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-100'} flex items-center justify-center hover:ring-2 ring-blue-500`}>
+                {localAppIcon}
+              </button>
+              {showIconPicker && (
+                <div className={`absolute right-0 mt-2 p-3 ${bgCard} border ${borderColor} rounded-lg shadow-lg z-50 w-64`}>
+                  <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+                    {ICON_OPTIONS.slice(0, 40).map(icon => (
+                      <button key={icon} onClick={() => handleIconChange(icon)} className={`w-9 h-9 text-lg rounded hover:bg-blue-100 ${darkMode ? 'hover:bg-gray-700' : ''} flex items-center justify-center`}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div><div className={textPrimary}>Dark Mode</div><div className={`text-sm ${textSecondary}`}>Use dark theme</div></div>
+            <button onClick={toggleDarkMode} className={`w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-blue-500' : 'bg-gray-300'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white transform transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Your Profile */}
+        <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+          <h3 className={`font-medium ${textPrimary} mb-3`}>Your Profile</h3>
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              {users.find(u => u.id === user?.id)?.avatar_url ? (
+                <img src={users.find(u => u.id === user?.id)?.avatar_url} alt="Profile" className="w-16 h-16 rounded-full object-cover" />
+              ) : (
+                <div className={`w-16 h-16 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
+                  <User size={24} className={textSecondary} />
+                </div>
+              )}
+              <label className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center cursor-pointer hover:bg-blue-600">
+                <Camera size={12} className="text-white" />
+                <input type="file" accept="image/*" onChange={handleProfilePicUpload} className="hidden" />
+              </label>
+            </div>
+            <div>
+              <div className={textPrimary}>{user?.email}</div>
+              <div className={`text-sm ${textSecondary}`}>Click the camera to upload a profile picture</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Household Members */}
+        <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+          <h3 className={`font-medium ${textPrimary} mb-3 flex items-center gap-2`}><Users size={18} /> Household Members</h3>
+          {loadingUsers ? (
+            <div className="flex justify-center py-4"><Loader2 size={24} className="animate-spin text-blue-500" /></div>
+          ) : users.length > 0 ? (
+            <div className="space-y-3">
+              {users.map(u => (
+                <div key={u.id} className={`flex items-center gap-3 p-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                  {u.avatar_url ? (
+                    <img src={u.avatar_url} alt={u.email} className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <div className={`w-10 h-10 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-200'} flex items-center justify-center`}>
+                      <User size={16} className={textSecondary} />
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <div className={textPrimary}>{u.display_name || u.email}</div>
+                    <div className={`text-xs ${textSecondary}`}>{u.id === user?.id ? 'You' : 'Member'}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className={`text-sm ${textSecondary}`}>No other household members yet.</p>
+          )}
+        </div>
+
+        {/* Data Export */}
+        <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+          <h3 className={`font-medium ${textPrimary} mb-3`}>Data Export</h3>
+          <button onClick={handleExportCSV} className={`flex items-center gap-2 px-4 py-2 border ${borderColor} rounded-lg ${textPrimary} hover:bg-gray-50 ${darkMode ? 'hover:bg-gray-700' : ''}`}>
+            <Download size={18} /> Export to CSV
+          </button>
+        </div>
+
+        {/* Sign Out */}
+        <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+          <button onClick={() => signOut()} className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">
+            <LogOut size={18} /> Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
       case 'inventory': return <Inventory />;
+      case 'wishlist': return <WishlistPage />;
+      case 'analysis': return <AnalysisPage />;
       case 'categories': return <CategoriesPage />;
       case 'locations': return <LocationsPage />;
       case 'tags': return <TagsPage />;
@@ -1567,6 +2543,7 @@ function MainApp() {
           categories={categories}
           locationOptions={locationOptions}
           tags={tags}
+          onCreateTag={handleCreateTagInline}
           initialData={itemFormInitialData}
           isEditMode={false}
           darkMode={darkMode}
@@ -1583,6 +2560,7 @@ function MainApp() {
             categories={categories}
             locationOptions={locationOptions}
             tags={tags}
+            onCreateTag={handleCreateTagInline}
             initialData={{
               id: editingItem.id,
               name: editingItem.name,
@@ -1596,6 +2574,9 @@ function MainApp() {
               is_favorite: editingItem.is_favorite,
               image_url: editingItem.image_url || '',
               tag_ids: editingItem.tags?.map(t => t.id) || [],
+              notes: editingItem.notes || '',
+              expiration_date: editingItem.expiration_date || '',
+              needs_replacement: editingItem.needs_replacement || false,
             }}
             isEditMode={true}
             darkMode={darkMode}
@@ -1628,8 +2609,24 @@ function MainApp() {
           onSubmit={handleCreateCategory}
           onCancel={() => setShowCategoryModal(false)}
           categories={categories}
+          isEditMode={false}
           darkMode={darkMode}
         />
+      </Modal>
+
+      {/* Edit Category Modal */}
+      <Modal show={!!editingCategory} onClose={() => setEditingCategory(null)} title="Edit Category" darkMode={darkMode}>
+        {editingCategory && (
+          <CategoryForm
+            key={editingCategory.id}
+            onSubmit={handleUpdateCategory}
+            onCancel={() => setEditingCategory(null)}
+            categories={categories}
+            initialData={editingCategory}
+            isEditMode={true}
+            darkMode={darkMode}
+          />
+        )}
       </Modal>
 
       <Modal show={!!showDeleteConfirm} onClose={() => setShowDeleteConfirm(null)} title="Confirm Delete" darkMode={darkMode}>

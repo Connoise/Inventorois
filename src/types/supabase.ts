@@ -143,6 +143,7 @@ export interface Item {
   is_essential: boolean;
   is_favorite: boolean;
   is_archived: boolean;
+  needs_replacement: boolean;
   status: 'in_stock' | 'low_stock' | 'out_of_stock' | 'on_order' | 'discontinued';
   purchase_price: number | null;
   current_value: number | null;
