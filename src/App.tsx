@@ -404,6 +404,7 @@ const ItemForm = memo(({
     tag_ids?: string[];
     notes?: string;
     expiration_date?: string;
+    acquired_date?: string;
     needs_replacement?: boolean;
   };
   isEditMode?: boolean;
@@ -424,6 +425,7 @@ const ItemForm = memo(({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notes, setNotes] = useState(initialData?.notes || '');
   const [expirationDate, setExpirationDate] = useState(initialData?.expiration_date || '');
+  const [acquiredDate, setAcquiredDate] = useState(initialData?.acquired_date || '');
   const [needsReplacement, setNeedsReplacement] = useState(initialData?.needs_replacement || false);
   
   // Inline tag creation state
@@ -499,6 +501,7 @@ const ItemForm = memo(({
         image_url: imagePreview && !imageFile ? imagePreview : null,
         notes,
         expiration_date: expirationDate || null,
+        acquired_date: acquiredDate || null,
         needs_replacement: needsReplacement,
       });
     } finally {
@@ -771,15 +774,26 @@ const ItemForm = memo(({
         </div>
       </div>
 
-      {/* Expiration Date */}
-      <div>
-        <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Expiration Date</label>
-        <input
-          type="date"
-          value={expirationDate}
-          onChange={(e) => setExpirationDate(e.target.value)}
-          className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
-        />
+      {/* Dates */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Purchase Date</label>
+          <input
+            type="date"
+            value={acquiredDate}
+            onChange={(e) => setAcquiredDate(e.target.value)}
+            className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+          />
+        </div>
+        <div>
+          <label className={`block text-sm font-medium ${textPrimary} mb-1`}>Expiration Date</label>
+          <input
+            type="date"
+            value={expirationDate}
+            onChange={(e) => setExpirationDate(e.target.value)}
+            className={`w-full p-2 rounded border ${borderColor} ${inputBg} ${textPrimary}`}
+          />
+        </div>
       </div>
 
       {/* Notes */}
@@ -1050,7 +1064,7 @@ function MainApp() {
           sku: null,
           model_number: null,
           serial_number: null,
-          acquired_date: null,
+          acquired_date: data.acquired_date || null,
           expiration_date: data.expiration_date || null,
           warranty_expiration: null,
           last_checked_date: null,
@@ -1110,6 +1124,7 @@ function MainApp() {
           needs_replacement: data.needs_replacement || false,
           notes: data.notes || null,
           expiration_date: data.expiration_date || null,
+          acquired_date: data.acquired_date || null,
         },
         data.location_id || undefined,
         data.tag_ids
@@ -1600,7 +1615,8 @@ function MainApp() {
     return acc;
   }, {} as Record<string, { name: string; items: typeof items }>);
 
-  const Inventory = () => (
+  // Inventory page content (rendered inline to prevent input focus loss)
+  const inventoryContent = (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-center justify-between">
         <div className="flex items-center gap-2 flex-1 max-w-md">
@@ -1979,6 +1995,15 @@ function MainApp() {
   // ANALYSIS PAGE
   // ============================================
   const AnalysisPage = () => {
+    // State for expanded sections
+    const [showAllEssentials, setShowAllEssentials] = useState(false);
+    const [showAllExpiring, setShowAllExpiring] = useState(false);
+    const [showAllReplacement, setShowAllReplacement] = useState(false);
+    const [showAllCategories, setShowAllCategories] = useState(false);
+    const [showAllLocations, setShowAllLocations] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<ItemWithRelations | null>(null);
+    const [viewMode, setAnalysisViewMode] = useState<'cards' | 'charts'>('cards');
+
     // Calculate various analytics
     const totalItems = items.length;
     const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -1986,6 +2011,7 @@ function MainApp() {
     
     const lowStockItems = items.filter(item => item.status === 'low_stock');
     const outOfStockItems = items.filter(item => item.status === 'out_of_stock');
+    const inStockItems = items.filter(item => item.status === 'in_stock');
     const essentialItems = items.filter(item => item.is_essential);
     const essentialLowStock = essentialItems.filter(item => item.status !== 'in_stock');
     
@@ -2018,134 +2044,254 @@ function MainApp() {
       };
     }).filter(loc => loc.itemCount > 0).sort((a, b) => b.itemCount - a.itemCount);
 
+    // Status distribution for chart
+    const statusData = [
+      { label: 'In Stock', count: inStockItems.length, color: '#22C55E' },
+      { label: 'Low Stock', count: lowStockItems.length, color: '#EAB308' },
+      { label: 'Out of Stock', count: outOfStockItems.length, color: '#EF4444' },
+    ];
+
+    // Simple bar chart component
+    const BarChart = ({ data, maxWidth = 200 }: { data: { label: string; count: number; color: string }[]; maxWidth?: number }) => {
+      const maxCount = Math.max(...data.map(d => d.count), 1);
+      return (
+        <div className="space-y-2">
+          {data.map((item, idx) => (
+            <div key={idx} className="flex items-center gap-2">
+              <span className={`text-xs ${textSecondary} w-20 truncate`}>{item.label}</span>
+              <div className="flex-1 h-6 rounded overflow-hidden" style={{ backgroundColor: darkMode ? '#374151' : '#E5E7EB', maxWidth }}>
+                <div 
+                  className="h-full rounded transition-all duration-500 flex items-center justify-end pr-2"
+                  style={{ width: `${(item.count / maxCount) * 100}%`, backgroundColor: item.color, minWidth: item.count > 0 ? '30px' : '0' }}
+                >
+                  <span className="text-xs text-white font-medium">{item.count}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    // Item detail modal
+    const ItemDetailModal = () => {
+      if (!selectedItem) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setSelectedItem(null)}>
+          <div className={`${bgCard} rounded-xl shadow-xl max-w-md w-full p-6`} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <h3 className={`text-lg font-semibold ${textPrimary}`}>{selectedItem.name}</h3>
+              <button onClick={() => setSelectedItem(null)} className={textSecondary}><X size={20} /></button>
+            </div>
+            {selectedItem.image_url && <img src={selectedItem.image_url} alt={selectedItem.name} className="w-full h-40 object-cover rounded-lg mb-4" />}
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className={textSecondary}>Category:</span><span className={textPrimary}>{selectedItem.category?.name || 'Uncategorized'}</span></div>
+              <div className="flex justify-between"><span className={textSecondary}>Quantity:</span><span className={textPrimary}>{selectedItem.quantity} {selectedItem.unit}</span></div>
+              <div className="flex justify-between"><span className={textSecondary}>Status:</span><StatusBadge status={selectedItem.status} /></div>
+              {selectedItem.purchase_price && <div className="flex justify-between"><span className={textSecondary}>Price:</span><span className={textPrimary}>${selectedItem.purchase_price}</span></div>}
+              {selectedItem.primary_location && <div className="flex justify-between"><span className={textSecondary}>Location:</span><span className={textPrimary}>{selectedItem.primary_location}</span></div>}
+              {selectedItem.expiration_date && <div className="flex justify-between"><span className={textSecondary}>Expires:</span><span className={textPrimary}>{new Date(selectedItem.expiration_date).toLocaleDateString()}</span></div>}
+              {selectedItem.acquired_date && <div className="flex justify-between"><span className={textSecondary}>Purchased:</span><span className={textPrimary}>{new Date(selectedItem.acquired_date).toLocaleDateString()}</span></div>}
+              {selectedItem.notes && <div className="pt-2 border-t"><span className={textSecondary}>Notes:</span><p className={`${textPrimary} mt-1`}>{selectedItem.notes}</p></div>}
+            </div>
+            <button onClick={() => { handleEditItem(selectedItem); setSelectedItem(null); }} className="mt-4 w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Edit Item</button>
+          </div>
+        </div>
+      );
+    };
+
+    // Clickable item row component
+    const ItemRow = ({ item, showDate = false }: { item: ItemWithRelations; showDate?: boolean }) => (
+      <div 
+        key={item.id} 
+        className={`flex items-center justify-between p-2 rounded cursor-pointer hover:ring-2 ring-blue-500 transition-all ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-50 hover:bg-gray-100'}`}
+        onClick={() => setSelectedItem(item)}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {item.image_url && <img src={item.image_url} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />}
+          <span className={`${textPrimary} truncate text-sm`}>{item.name}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          {showDate && item.expiration_date && <span className="text-xs text-orange-500">{new Date(item.expiration_date).toLocaleDateString()}</span>}
+          {!showDate && <span className={`text-xs ${item.status === 'out_of_stock' ? 'text-red-500' : 'text-yellow-500'}`}>{item.quantity} {item.unit}</span>}
+          <StatusBadge status={item.status} />
+        </div>
+      </div>
+    );
+
     return (
-      <div className="space-y-6">
-        <h2 className={`text-xl font-semibold ${textPrimary}`}>Inventory Analysis</h2>
+      <div className="space-y-4">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <h2 className={`text-lg sm:text-xl font-semibold ${textPrimary}`}>Inventory Analysis</h2>
+          <div className={`flex rounded-lg border ${borderColor} overflow-hidden`}>
+            <button onClick={() => setAnalysisViewMode('cards')} className={`px-3 py-1.5 text-sm ${viewMode === 'cards' ? 'bg-blue-500 text-white' : bgCard}`}>Cards</button>
+            <button onClick={() => setAnalysisViewMode('charts')} className={`px-3 py-1.5 text-sm ${viewMode === 'charts' ? 'bg-blue-500 text-white' : bgCard}`}>Charts</button>
+          </div>
+        </div>
         
         {/* Key Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center"><Package size={20} className="text-blue-600" /></div>
-              <div><div className={`text-2xl font-bold ${textPrimary}`}>{totalItems}</div><div className={`text-sm ${textSecondary}`}>Total Items</div></div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-3`}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0"><Package size={16} className="text-blue-600" /></div>
+              <div className="min-w-0"><div className={`text-lg sm:text-xl font-bold ${textPrimary} truncate`}>{totalItems}</div><div className={`text-xs ${textSecondary}`}>Items</div></div>
             </div>
           </div>
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center"><DollarSign size={20} className="text-green-600" /></div>
-              <div><div className={`text-2xl font-bold ${textPrimary}`}>${totalValue.toFixed(2)}</div><div className={`text-sm ${textSecondary}`}>Total Value</div></div>
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-3`}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0"><DollarSign size={16} className="text-green-600" /></div>
+              <div className="min-w-0"><div className={`text-lg sm:text-xl font-bold ${textPrimary} truncate`}>${totalValue.toFixed(0)}</div><div className={`text-xs ${textSecondary}`}>Value</div></div>
             </div>
           </div>
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center"><TrendingDown size={20} className="text-yellow-600" /></div>
-              <div><div className={`text-2xl font-bold ${textPrimary}`}>{lowStockItems.length}</div><div className={`text-sm ${textSecondary}`}>Low Stock</div></div>
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-3`}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0"><TrendingDown size={16} className="text-yellow-600" /></div>
+              <div className="min-w-0"><div className={`text-lg sm:text-xl font-bold ${textPrimary}`}>{lowStockItems.length}</div><div className={`text-xs ${textSecondary}`}>Low Stock</div></div>
             </div>
           </div>
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center"><AlertCircle size={20} className="text-red-600" /></div>
-              <div><div className={`text-2xl font-bold ${textPrimary}`}>{outOfStockItems.length}</div><div className={`text-sm ${textSecondary}`}>Out of Stock</div></div>
+          <div className={`${bgCard} border ${borderColor} rounded-lg p-3`}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0"><AlertCircle size={16} className="text-red-600" /></div>
+              <div className="min-w-0"><div className={`text-lg sm:text-xl font-bold ${textPrimary}`}>{outOfStockItems.length}</div><div className={`text-xs ${textSecondary}`}>Out</div></div>
             </div>
           </div>
         </div>
 
-        {/* Alerts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Low Stock Essentials */}
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><AlertTriangle size={18} className="text-yellow-500" /> Essential Items - Low/Out of Stock</h3>
-            {essentialLowStock.length > 0 ? (
-              <div className="space-y-2">
-                {essentialLowStock.slice(0, 5).map(item => (
-                  <div key={item.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                    <span className={textPrimary}>{item.name}</span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm ${item.status === 'out_of_stock' ? 'text-red-500' : 'text-yellow-500'}`}>{item.quantity} {item.unit}</span>
-                      <StatusBadge status={item.status} />
-                    </div>
-                  </div>
-                ))}
-                {essentialLowStock.length > 5 && <p className={`text-sm ${textSecondary}`}>+{essentialLowStock.length - 5} more</p>}
-              </div>
-            ) : (
-              <p className={`${textSecondary} text-sm`}>All essential items are in stock!</p>
-            )}
+        {viewMode === 'charts' ? (
+          /* Charts View */
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <h3 className={`font-semibold ${textPrimary} mb-4 text-sm sm:text-base`}>Stock Status Distribution</h3>
+              <BarChart data={statusData} maxWidth={300} />
+            </div>
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <h3 className={`font-semibold ${textPrimary} mb-4 text-sm sm:text-base`}>Top Categories</h3>
+              <BarChart data={categoryBreakdown.slice(0, 5).map(cat => ({ label: cat.name, count: cat.itemCount, color: cat.color || '#3B82F6' }))} maxWidth={300} />
+            </div>
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <h3 className={`font-semibold ${textPrimary} mb-4 text-sm sm:text-base`}>Value by Category</h3>
+              <BarChart data={categoryBreakdown.slice(0, 5).map(cat => ({ label: cat.name, count: Math.round(cat.totalValue), color: cat.color || '#22C55E' }))} maxWidth={300} />
+            </div>
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <h3 className={`font-semibold ${textPrimary} mb-4 text-sm sm:text-base`}>Items by Location</h3>
+              <BarChart data={locationBreakdown.slice(0, 5).map(loc => ({ label: loc.name, count: loc.itemCount, color: '#8B5CF6' }))} maxWidth={300} />
+            </div>
           </div>
-
-          {/* Expiring Soon */}
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><Calendar size={18} className="text-orange-500" /> Expiring Soon (30 days)</h3>
-            {expiringItems.length > 0 ? (
-              <div className="space-y-2">
-                {expiringItems.slice(0, 5).map(item => (
-                  <div key={item.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                    <span className={textPrimary}>{item.name}</span>
-                    <span className="text-sm text-orange-500">{new Date(item.expiration_date!).toLocaleDateString()}</span>
-                  </div>
-                ))}
-                {expiringItems.length > 5 && <p className={`text-sm ${textSecondary}`}>+{expiringItems.length - 5} more</p>}
+        ) : (
+          /* Cards View */
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Essential Items Low/Out */}
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className={`font-semibold ${textPrimary} flex items-center gap-2 text-sm sm:text-base`}><AlertTriangle size={16} className="text-yellow-500" /> Essentials Alert</h3>
+                {essentialLowStock.length > 5 && (
+                  <button onClick={() => setShowAllEssentials(!showAllEssentials)} className="text-xs text-blue-500 hover:underline">
+                    {showAllEssentials ? 'Show Less' : `Show All (${essentialLowStock.length})`}
+                  </button>
+                )}
               </div>
-            ) : (
-              <p className={`${textSecondary} text-sm`}>No items expiring soon.</p>
-            )}
-          </div>
-
-          {/* Needs Replacement */}
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><RefreshCw size={18} className="text-orange-500" /> Needs Replacement</h3>
-            {replacementItems.length > 0 ? (
-              <div className="space-y-2">
-                {replacementItems.slice(0, 5).map(item => (
-                  <div key={item.id} className={`flex items-center justify-between p-2 rounded ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                    <span className={textPrimary}>{item.name}</span>
-                    <span className={`text-sm ${textSecondary}`}>{item.category?.name}</span>
-                  </div>
-                ))}
-                {replacementItems.length > 5 && <p className={`text-sm ${textSecondary}`}>+{replacementItems.length - 5} more</p>}
-              </div>
-            ) : (
-              <p className={`${textSecondary} text-sm`}>No items flagged for replacement.</p>
-            )}
-          </div>
-
-          {/* Category Breakdown */}
-          <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-            <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><PieChart size={18} className="text-blue-500" /> By Category</h3>
-            <div className="space-y-2">
-              {categoryBreakdown.slice(0, 6).map(cat => (
-                <div key={cat.id} className="flex items-center gap-2">
-                  <div className="w-8 text-center">{cat.icon}</div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center">
-                      <span className={`text-sm ${textPrimary}`}>{cat.name}</span>
-                      <span className={`text-sm ${textSecondary}`}>{cat.itemCount} items</span>
-                    </div>
-                    <div className={`h-2 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} overflow-hidden`}>
-                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${(cat.itemCount / totalItems) * 100}%` }} />
-                    </div>
-                  </div>
+              {essentialLowStock.length > 0 ? (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {(showAllEssentials ? essentialLowStock : essentialLowStock.slice(0, 5)).map(item => <ItemRow key={item.id} item={item} />)}
                 </div>
-              ))}
+              ) : (
+                <p className={`${textSecondary} text-sm`}>All essential items are in stock! ✓</p>
+              )}
+            </div>
+
+            {/* Expiring Soon */}
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className={`font-semibold ${textPrimary} flex items-center gap-2 text-sm sm:text-base`}><Calendar size={16} className="text-orange-500" /> Expiring Soon</h3>
+                {expiringItems.length > 5 && (
+                  <button onClick={() => setShowAllExpiring(!showAllExpiring)} className="text-xs text-blue-500 hover:underline">
+                    {showAllExpiring ? 'Show Less' : `Show All (${expiringItems.length})`}
+                  </button>
+                )}
+              </div>
+              {expiringItems.length > 0 ? (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {(showAllExpiring ? expiringItems : expiringItems.slice(0, 5)).map(item => <ItemRow key={item.id} item={item} showDate />)}
+                </div>
+              ) : (
+                <p className={`${textSecondary} text-sm`}>No items expiring soon.</p>
+              )}
+            </div>
+
+            {/* Needs Replacement */}
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className={`font-semibold ${textPrimary} flex items-center gap-2 text-sm sm:text-base`}><RefreshCw size={16} className="text-orange-500" /> Needs Replacement</h3>
+                {replacementItems.length > 5 && (
+                  <button onClick={() => setShowAllReplacement(!showAllReplacement)} className="text-xs text-blue-500 hover:underline">
+                    {showAllReplacement ? 'Show Less' : `Show All (${replacementItems.length})`}
+                  </button>
+                )}
+              </div>
+              {replacementItems.length > 0 ? (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {(showAllReplacement ? replacementItems : replacementItems.slice(0, 5)).map(item => <ItemRow key={item.id} item={item} />)}
+                </div>
+              ) : (
+                <p className={`${textSecondary} text-sm`}>No items flagged for replacement.</p>
+              )}
+            </div>
+
+            {/* Category Breakdown */}
+            <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className={`font-semibold ${textPrimary} flex items-center gap-2 text-sm sm:text-base`}><PieChart size={16} className="text-blue-500" /> By Category</h3>
+                {categoryBreakdown.length > 6 && (
+                  <button onClick={() => setShowAllCategories(!showAllCategories)} className="text-xs text-blue-500 hover:underline">
+                    {showAllCategories ? 'Show Less' : `Show All (${categoryBreakdown.length})`}
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {(showAllCategories ? categoryBreakdown : categoryBreakdown.slice(0, 6)).map(cat => (
+                  <div key={cat.id} className="flex items-center gap-2">
+                    <div className="w-6 text-center text-sm">{cat.icon}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center">
+                        <span className={`text-xs sm:text-sm ${textPrimary} truncate`}>{cat.name}</span>
+                        <span className={`text-xs ${textSecondary} ml-2`}>{cat.itemCount}</span>
+                      </div>
+                      <div className={`h-1.5 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} overflow-hidden`}>
+                        <div className="h-full rounded-full" style={{ width: `${(cat.itemCount / totalItems) * 100}%`, backgroundColor: cat.color || '#3B82F6' }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Location Breakdown */}
+        {/* Location Breakdown - Always show */}
         <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
-          <h3 className={`font-semibold ${textPrimary} mb-3 flex items-center gap-2`}><MapPin size={18} className="text-green-500" /> By Location</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {locationBreakdown.slice(0, 9).map(loc => (
-              <div key={loc.id} className={`p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
-                <div className={`font-medium ${textPrimary} text-sm truncate`}>{loc.path}</div>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className={`font-semibold ${textPrimary} flex items-center gap-2 text-sm sm:text-base`}><MapPin size={16} className="text-green-500" /> By Location</h3>
+            {locationBreakdown.length > 6 && (
+              <button onClick={() => setShowAllLocations(!showAllLocations)} className="text-xs text-blue-500 hover:underline">
+                {showAllLocations ? 'Show Less' : `Show All (${locationBreakdown.length})`}
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {(showAllLocations ? locationBreakdown : locationBreakdown.slice(0, 6)).map(loc => (
+              <div key={loc.id} className={`p-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                <div className={`font-medium ${textPrimary} text-xs sm:text-sm truncate`}>{loc.path}</div>
                 <div className="flex justify-between items-center mt-1">
-                  <span className={`text-sm ${textSecondary}`}>{loc.itemCount} items</span>
-                  <span className={`text-sm text-green-600`}>${loc.totalValue.toFixed(2)}</span>
+                  <span className={`text-xs ${textSecondary}`}>{loc.itemCount} items</span>
+                  <span className="text-xs text-green-600">${loc.totalValue.toFixed(0)}</span>
                 </div>
               </div>
             ))}
           </div>
         </div>
+
+        {/* Item Detail Modal */}
+        <ItemDetailModal />
       </div>
     );
   };
@@ -2204,8 +2350,14 @@ function MainApp() {
     };
 
     const markAsPurchased = async (wishlistItem: any) => {
-      // Add to inventory
-      setItemFormInitialData({ name: wishlistItem.name, notes: wishlistItem.notes || '' });
+      // Set today's date as purchase date
+      const today = new Date().toISOString().split('T')[0];
+      // Add to inventory with pre-filled data
+      setItemFormInitialData({ 
+        name: wishlistItem.name, 
+        notes: wishlistItem.notes || '',
+        acquired_date: today
+      });
       openAddModal();
       // Remove from wishlist
       await supabase.from('wishlist').delete().eq('id', wishlistItem.id);
@@ -2472,7 +2624,7 @@ function MainApp() {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
-      case 'inventory': return <Inventory />;
+      case 'inventory': return inventoryContent;
       case 'wishlist': return <WishlistPage />;
       case 'analysis': return <AnalysisPage />;
       case 'categories': return <CategoriesPage />;
@@ -2576,6 +2728,7 @@ function MainApp() {
               tag_ids: editingItem.tags?.map(t => t.id) || [],
               notes: editingItem.notes || '',
               expiration_date: editingItem.expiration_date || '',
+              acquired_date: editingItem.acquired_date || '',
               needs_replacement: editingItem.needs_replacement || false,
             }}
             isEditMode={true}
