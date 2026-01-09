@@ -482,23 +482,47 @@ export function useCurrentUser() {
 
 // Fetch all users (for household members list)
 export function useUsers() {
-  const { data, loading, error, refetch } = useFetch(
-    () => usersService.fetchUsers()
-  );
+  const [users, setUsers] = useState<usersService.UserWithRole[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchUsers = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await usersService.fetchUsers();
+      setUsers(data);
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+      setError(err instanceof Error ? err : new Error('Failed to fetch users'));
+      // Don't set users to empty array - keep existing data on error
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const updateRole = useCallback(async (
     userId: string,
     newRole: usersService.UserRole
   ) => {
-    await usersService.updateUserRole(userId, newRole);
-    refetch();
-  }, [refetch]);
+    try {
+      await usersService.updateUserRole(userId, newRole);
+      await fetchUsers();
+    } catch (err) {
+      console.error('Failed to update user role:', err);
+      throw err;
+    }
+  }, [fetchUsers]);
 
   return {
-    users: data || [],
+    users,
     loading,
     error,
-    refetch,
+    refetch: fetchUsers,
     updateRole,
   };
 }

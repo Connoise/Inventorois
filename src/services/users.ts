@@ -17,13 +17,26 @@ export type UserRole = 'owner' | 'admin' | 'member' | 'viewer';
  * Returns array of users ordered by creation date
  */
 export async function fetchUsers(): Promise<UserWithRole[]> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: true });
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: true });
 
-  if (error) throw error;
-  return data || [];
+    if (error) {
+      console.error('Error fetching users:', error);
+      throw error;
+    }
+
+    // Handle case where role column doesn't exist yet (migration not run)
+    return (data || []).map(user => ({
+      ...user,
+      role: user.role || 'viewer' as any, // Default to viewer if role is missing
+    }));
+  } catch (error) {
+    console.error('Failed to fetch users:', error);
+    throw error;
+  }
 }
 
 /**
@@ -31,17 +44,34 @@ export async function fetchUsers(): Promise<UserWithRole[]> {
  * Returns null if user is not authenticated
  */
 export async function fetchCurrentUserProfile(): Promise<UserWithRole | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
 
-  if (error) throw error;
-  return data;
+    if (error) {
+      console.error('Error fetching current user profile:', error);
+      throw error;
+    }
+
+    // Handle case where role column doesn't exist yet (migration not run)
+    if (data && !data.role) {
+      return {
+        ...data,
+        role: 'viewer', // Default to viewer if role is missing
+      };
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch current user profile:', error);
+    throw error;
+  }
 }
 
 /**

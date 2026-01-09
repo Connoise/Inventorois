@@ -3015,8 +3015,8 @@ function MainApp() {
           <h3 className={`font-medium ${textPrimary} mb-3`} style={textPrimaryStyle}>Your Profile</h3>
           <div className="flex items-center gap-4">
             <div className="relative">
-              {users.find(u => u.id === user?.id)?.avatar_url ? (
-                <img src={users.find(u => u.id === user?.id)?.avatar_url} alt="Profile" className="w-16 h-16 rounded-full object-cover" />
+              {householdUsers.find(u => u.id === user?.id)?.avatar_url ? (
+                <img src={householdUsers.find(u => u.id === user?.id)?.avatar_url} alt="Profile" className="w-16 h-16 rounded-full object-cover" />
               ) : (
                 <div className={`w-16 h-16 rounded-full ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
                   <User size={24} className={textSecondary} />
