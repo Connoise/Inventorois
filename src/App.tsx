@@ -2844,9 +2844,11 @@ function MainApp() {
   // ============================================
   const SettingsPage = () => {
     // Use new hooks for user management with roles
-    const { profile: currentUserProfile } = useCurrentUser();
-    const { users: householdUsers, loading: loadingUsers, updateRole } = useUsers();
-    const canManageRoles = currentUserProfile && canManageUsers(currentUserProfile.role);
+    const { profile: currentUserProfile, loading: loadingProfile } = useCurrentUser();
+    const { users: householdUsers, loading: loadingUsers, updateRole, error: usersError } = useUsers();
+
+    // Safely check if user can manage roles (handles case where migration hasn't been run)
+    const canManageRoles = currentUserProfile?.role ? canManageUsers(currentUserProfile.role) : false;
 
     const [localAppIcon, setLocalAppIcon] = useState(localStorage.getItem('appIcon') || '📦');
     const [showIconPicker, setShowIconPicker] = useState(false);
@@ -3040,7 +3042,16 @@ function MainApp() {
           <h3 className={`font-medium ${textPrimary} mb-3 flex items-center gap-2`} style={textPrimaryStyle}>
             <Users size={18} /> Household Members
           </h3>
-          {loadingUsers ? (
+          {usersError ? (
+            <div className={`p-4 rounded-lg ${darkMode ? 'bg-yellow-900' : 'bg-yellow-50'} text-yellow-800 ${darkMode ? 'text-yellow-200' : ''}`}>
+              <p className="font-medium mb-2">⚠️ Database Migration Required</p>
+              <p className="text-sm">To enable user role management, please run the database migration:</p>
+              <ol className="text-sm mt-2 ml-4 list-decimal">
+                <li>Open Supabase SQL Editor</li>
+                <li>Run the migration from <code className="bg-black bg-opacity-20 px-1 rounded">database/add-role-permissions.sql</code></li>
+              </ol>
+            </div>
+          ) : loadingUsers ? (
             <div className="flex justify-center py-4">
               <Loader2 size={24} className="animate-spin" style={{ color: accentColor }} />
             </div>
@@ -3068,12 +3079,12 @@ function MainApp() {
                           You
                         </span>
                       )}
-                      <span>{ROLE_LABELS[u.role]}</span>
+                      <span>{u.role ? ROLE_LABELS[u.role] : 'Member'}</span>
                     </div>
                   </div>
 
                   {/* Role selector (admin only, can't change own role) */}
-                  {canManageRoles && u.id !== user?.id && (
+                  {canManageRoles && u.id !== user?.id && u.role && (
                     <select
                       value={u.role}
                       onChange={(e) => updateRole(u.id, e.target.value as any)}
@@ -3090,7 +3101,7 @@ function MainApp() {
                   {/* Role badge (non-admin or own profile) */}
                   {(!canManageRoles || u.id === user?.id) && (
                     <span className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-600' : 'bg-gray-200'}`}>
-                      {ROLE_LABELS[u.role]}
+                      {u.role ? ROLE_LABELS[u.role] : 'Member'}
                     </span>
                   )}
                 </div>
