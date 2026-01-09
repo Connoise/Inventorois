@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import * as itemsService from '../services/items';
 import * as categoriesService from '../services/categories';
@@ -7,6 +7,7 @@ import * as tagsService from '../services/tags';
 import * as templatesService from '../services/templates';
 import * as historyService from '../services/history';
 import * as notificationsService from '../services/notifications';
+import * as usersService from '../services/users';
 import { useUndoStore, useFilterStore } from '../stores';
 import type { 
   ItemWithRelations, 
@@ -451,4 +452,66 @@ export function useAuth() {
   }, []);
 
   return { user, loading };
+}
+
+// User management hooks
+
+// Fetch current user's profile with role
+export function useCurrentUser() {
+  const [profile, setProfile] = useState<usersService.UserWithRole | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await usersService.fetchCurrentUserProfile();
+      setProfile(data);
+    } catch (err) {
+      console.error('Failed to fetch user profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  return { profile, loading, refetch: fetchProfile };
+}
+
+// Fetch all users (for household members list)
+export function useUsers() {
+  const { data, loading, error, refetch } = useFetch(
+    () => usersService.fetchUsers()
+  );
+
+  const updateRole = useCallback(async (
+    userId: string,
+    newRole: usersService.UserRole
+  ) => {
+    await usersService.updateUserRole(userId, newRole);
+    refetch();
+  }, [refetch]);
+
+  return {
+    users: data || [],
+    loading,
+    error,
+    refetch,
+    updateRole,
+  };
+}
+
+// Permission checking hook
+export function usePermission(requiredRole: usersService.UserRole) {
+  const { profile, loading } = useCurrentUser();
+
+  const hasPermission = useMemo(() => {
+    if (!profile) return false;
+    const roleHierarchy = { owner: 4, admin: 3, member: 2, viewer: 1 };
+    return roleHierarchy[profile.role] >= roleHierarchy[requiredRole];
+  }, [profile, requiredRole]);
+
+  return { hasPermission, loading, role: profile?.role };
 }

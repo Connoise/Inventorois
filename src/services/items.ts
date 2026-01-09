@@ -39,6 +39,22 @@ export async function fetchItems(filters?: ItemFilters): Promise<ItemWithRelatio
     query = query.eq('is_favorite', filters.is_favorite);
   }
 
+  // Filter by location - need to check if item has a location relationship
+  if (filters?.location_id) {
+    const { data: itemsInLocation } = await supabase
+      .from('item_locations')
+      .select('item_id')
+      .eq('location_id', filters.location_id);
+
+    const itemIds = itemsInLocation?.map(il => il.item_id) || [];
+    if (itemIds.length > 0) {
+      query = query.in('id', itemIds);
+    } else {
+      // No items in this location, return empty array
+      return [];
+    }
+  }
+
   const { data, error } = await query;
 
   if (error) throw error;

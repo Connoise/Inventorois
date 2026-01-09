@@ -9,9 +9,10 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from './hooks';
-import { useItems, useCategories, useLocations, useTags, useTemplates, useHistory, useNotifications } from './hooks';
+import { useItems, useCategories, useLocations, useTags, useTemplates, useHistory, useNotifications, useCurrentUser, useUsers } from './hooks';
 import { useUIStore, useFilterStore, useUndoStore, umaThemes, getThemeColors } from './stores';
 import { formatRelativeTime, getStatusColor, getStatusLabel, exportToCSV } from './utils';
+import { ROLE_LABELS, canManageUsers } from './utils/permissions';
 import { signIn, signUp, signOut } from './lib/supabase';
 import { supabase } from './lib/supabase';
 import type { ItemWithRelations, LocationWithChildren } from './types/supabase';
@@ -1006,6 +1007,12 @@ function MainApp() {
   const { history, undoChange } = useHistory();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
 
+  // Permission hooks for role-based access control
+  const { profile: currentUserProfile } = useCurrentUser();
+  const canAddItems = currentUserProfile ? currentUserProfile.role !== 'viewer' : false;
+  const canDeleteItems = currentUserProfile ? ['owner', 'admin'].includes(currentUserProfile.role) : false;
+  const canManageStructure = currentUserProfile ? ['owner', 'admin'].includes(currentUserProfile.role) : false;
+
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -1023,7 +1030,6 @@ function MainApp() {
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
-  const [filterLocation, setFilterLocation] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterEssential, setFilterEssential] = useState(false);
   const [inventoryViewMode, setInventoryViewMode] = useState<'all' | 'byLocation'>('all');
@@ -1407,12 +1413,14 @@ function MainApp() {
                   >
                     <Edit2 size={14} /> Edit
                   </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
-                    className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2"
-                  >
-                    <Trash2 size={14} /> Delete
-                  </button>
+                  {canDeleteItems && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(item.id); setShowItemMenu(null); }}
+                      className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1770,14 +1778,12 @@ function MainApp() {
     );
   };
 
-  // Filter items based on search and filters
+  // Filter items based on search and filters (location filtering now happens at database level)
   const filteredItems = items.filter(item => {
     // Search filter
     if (searchQuery && !item.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     // Category filter
     if (filterCategory && item.category_id !== filterCategory) return false;
-    // Location filter
-    if (filterLocation && !item.locations?.some(l => l.location_id === filterLocation)) return false;
     // Status filter
     if (filterStatus && item.status !== filterStatus) return false;
     // Essential filter
@@ -1815,7 +1821,14 @@ function MainApp() {
             <button onClick={() => { setViewMode('list'); setInventoryViewMode('all'); }} className={`p-2 ${viewMode === 'list' && inventoryViewMode === 'all' ? 'bg-blue-500 text-white' : bgCard}`} style={viewMode === 'list' && inventoryViewMode === 'all' ? {} : bgCardStyle} title="List View"><List size={18} /></button>
             <button onClick={() => setInventoryViewMode('byLocation')} className={`p-2 ${inventoryViewMode === 'byLocation' ? 'bg-blue-500 text-white' : bgCard}`} style={inventoryViewMode === 'byLocation' ? {} : bgCardStyle} title="By Location"><MapPin size={18} /></button>
           </div>
-          <button onClick={() => { setItemFormInitialData(null); openAddModal(); }} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /><span className="hidden sm:inline">Add Item</span></button>
+          <button
+            onClick={() => { setItemFormInitialData(null); openAddModal(); }}
+            disabled={!canAddItems}
+            className={`flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 ${!canAddItems ? 'opacity-50 cursor-not-allowed' : ''}`}
+            title={!canAddItems ? 'Viewers cannot add items' : 'Add Item'}
+          >
+            <Plus size={18} /><span className="hidden sm:inline">Add Item</span>
+          </button>
         </div>
       </div>
 
@@ -1831,7 +1844,7 @@ function MainApp() {
             </div>
             <div>
               <label className="text-sm block mb-1" style={{ color: themeColors.textSecondary }}>Location</label>
-              <select value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} className={`w-full p-2 rounded border ${borderColor}`} style={{ ...inputBgStyle, ...borderColorStyle }}>
+              <select value={filters.location_id || ''} onChange={(e) => setFilter('location_id', e.target.value || undefined)} className={`w-full p-2 rounded border ${borderColor}`} style={{ ...inputBgStyle, ...borderColorStyle }}>
                 <option value="">All Locations</option>
                 {locationOptions.map(loc => <option key={loc.id} value={loc.id}>{loc.path}</option>)}
               </select>
@@ -1849,19 +1862,19 @@ function MainApp() {
               <label className="flex items-center gap-2 text-sm" style={{ color: themeColors.text }}><input type="checkbox" checked={filterEssential} onChange={(e) => setFilterEssential(e.target.checked)} />Essentials Only</label>
             </div>
             <div className="flex items-end">
-              <button onClick={() => { setFilterCategory(''); setFilterLocation(''); setFilterStatus(''); setFilterEssential(false); setSearchQuery(''); }} className="text-sm text-blue-500 hover:underline">Clear All</button>
+              <button onClick={() => { setFilterCategory(''); setFilter('location_id', undefined); setFilterStatus(''); setFilterEssential(false); setSearchQuery(''); }} className="text-sm text-blue-500 hover:underline">Clear All</button>
             </div>
           </div>
         </div>
       )}
 
       {/* Active filters display */}
-      {(searchQuery || filterCategory || filterLocation || filterStatus || filterEssential) && (
+      {(searchQuery || filterCategory || filters.location_id || filterStatus || filterEssential) && (
         <div className="flex flex-wrap gap-2 items-center">
           <span className="text-sm" style={{ color: themeColors.textSecondary }}>Showing {filteredItems.length} of {items.length} items:</span>
           {searchQuery && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">Search: "{searchQuery}" <button onClick={() => setSearchQuery('')}><X size={12} /></button></span>}
           {filterCategory && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{categories.find(c => c.id === filterCategory)?.name} <button onClick={() => setFilterCategory('')}><X size={12} /></button></span>}
-          {filterLocation && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{locationOptions.find(l => l.id === filterLocation)?.path} <button onClick={() => setFilterLocation('')}><X size={12} /></button></span>}
+          {filters.location_id && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{locationOptions.find(l => l.id === filters.location_id)?.path} <button onClick={() => setFilter('location_id', undefined)}><X size={12} /></button></span>}
           {filterStatus && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">{filterStatus.replace('_', ' ')} <button onClick={() => setFilterStatus('')}><X size={12} /></button></span>}
           {filterEssential && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs flex items-center gap-1">Essential <button onClick={() => setFilterEssential(false)}><X size={12} /></button></span>}
         </div>
@@ -1943,7 +1956,11 @@ function MainApp() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className={`text-xl font-semibold ${textPrimary}`}>Categories</h2>
-        <button onClick={() => setShowCategoryModal(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /> Add Category</button>
+        {canManageStructure && (
+          <button onClick={() => setShowCategoryModal(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+            <Plus size={18} /> Add Category
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {categories.map(cat => (
@@ -1966,7 +1983,11 @@ function MainApp() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className={`text-xl font-semibold ${textPrimary}`}>Locations</h2>
-        <button onClick={() => setShowLocationModal(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /> Add Location</button>
+        {canManageStructure && (
+          <button onClick={() => setShowLocationModal(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+            <Plus size={18} /> Add Location
+          </button>
+        )}
       </div>
       <div className={`${bgCard} border ${borderColor} rounded-lg p-4`}>
         {locations.length > 0 ? <LocationTree locs={locations} /> : (
@@ -1980,7 +2001,11 @@ function MainApp() {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className={`text-xl font-semibold ${textPrimary}`}>Tags</h2>
-        <button onClick={() => setShowTagModal(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"><Plus size={18} /> Add Tag</button>
+        {canManageStructure && (
+          <button onClick={() => setShowTagModal(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+            <Plus size={18} /> Add Tag
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap gap-3">
         {tags.map(tag => (
@@ -2818,25 +2843,14 @@ function MainApp() {
   // SETTINGS PAGE
   // ============================================
   const SettingsPage = () => {
-    const [users, setUsers] = useState<any[]>([]);
-    const [loadingUsers, setLoadingUsers] = useState(true);
+    // Use new hooks for user management with roles
+    const { profile: currentUserProfile } = useCurrentUser();
+    const { users: householdUsers, loading: loadingUsers, updateRole } = useUsers();
+    const canManageRoles = currentUserProfile && canManageUsers(currentUserProfile.role);
+
     const [localAppIcon, setLocalAppIcon] = useState(localStorage.getItem('appIcon') || '📦');
     const [showIconPicker, setShowIconPicker] = useState(false);
     const [showThemePicker, setShowThemePicker] = useState(false);
-
-    useEffect(() => {
-      const loadUsers = async () => {
-        try {
-          // Load users from profiles table
-          const { data, error } = await supabase.from('profiles').select('*');
-          if (!error && data) setUsers(data);
-        } catch (err) {
-          console.error('Failed to load users:', err);
-        }
-        setLoadingUsers(false);
-      };
-      loadUsers();
-    }, []);
 
     const handleIconChange = (icon: string) => {
       setLocalAppIcon(icon);
@@ -2848,15 +2862,13 @@ function MainApp() {
     const handleProfilePicUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !user) return;
-      
+
       try {
         const { uploadItemImage, compressImage } = await import('./services/images');
         const compressed = await compressImage(file, 200);
         const imageUrl = await uploadItemImage(compressed, `profile-${user.id}`);
         await supabase.from('profiles').upsert({ id: user.id, avatar_url: imageUrl, email: user.email });
-        // Refresh users
-        const { data } = await supabase.from('profiles').select('*');
-        if (data) setUsers(data);
+        // No need to manually refresh - hook will auto-refresh
       } catch (err) {
         console.error('Failed to upload profile picture:', err);
       }
@@ -3023,31 +3035,81 @@ function MainApp() {
           </div>
         </div>
 
-        {/* Household Members */}
+        {/* Household Members with Role Management */}
         <div className={`${bgCard} border ${borderColor} rounded-lg p-4`} style={{ ...bgCardStyle, ...borderColorStyle }}>
-          <h3 className={`font-medium ${textPrimary} mb-3 flex items-center gap-2`} style={textPrimaryStyle}><Users size={18} /> Household Members</h3>
+          <h3 className={`font-medium ${textPrimary} mb-3 flex items-center gap-2`} style={textPrimaryStyle}>
+            <Users size={18} /> Household Members
+          </h3>
           {loadingUsers ? (
-            <div className="flex justify-center py-4"><Loader2 size={24} className="animate-spin" style={{ color: accentColor }} /></div>
-          ) : users.length > 0 ? (
+            <div className="flex justify-center py-4">
+              <Loader2 size={24} className="animate-spin" style={{ color: accentColor }} />
+            </div>
+          ) : householdUsers.length > 0 ? (
             <div className="space-y-3">
-              {users.map(u => (
-                <div key={u.id} className={`flex items-center gap-3 p-2 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+              {householdUsers.map(u => (
+                <div key={u.id} className={`flex items-center gap-3 p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-gray-50'}`}>
+                  {/* Avatar */}
                   {u.avatar_url ? (
-                    <img src={u.avatar_url} alt={u.email} className="w-10 h-10 rounded-full object-cover" />
+                    <img src={u.avatar_url} alt={u.display_name || u.email || ''} className="w-10 h-10 rounded-full object-cover" />
                   ) : (
                     <div className={`w-10 h-10 rounded-full ${darkMode ? 'bg-gray-600' : 'bg-gray-200'} flex items-center justify-center`}>
                       <User size={16} className={textSecondary} />
                     </div>
                   )}
-                  <div className="flex-1">
-                    <div className={textPrimary} style={textPrimaryStyle}>{u.display_name || u.email}</div>
-                    <div className={`text-xs ${textSecondary}`} style={textSecondaryStyle}>{u.id === user?.id ? 'You' : 'Member'}</div>
+
+                  {/* User info */}
+                  <div className="flex-1 min-w-0">
+                    <div className={`${textPrimary} truncate`} style={textPrimaryStyle}>
+                      {u.display_name || u.email}
+                    </div>
+                    <div className={`text-xs ${textSecondary} flex items-center gap-2`} style={textSecondaryStyle}>
+                      {u.id === user?.id && (
+                        <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: accentColor, color: 'white' }}>
+                          You
+                        </span>
+                      )}
+                      <span>{ROLE_LABELS[u.role]}</span>
+                    </div>
                   </div>
+
+                  {/* Role selector (admin only, can't change own role) */}
+                  {canManageRoles && u.id !== user?.id && (
+                    <select
+                      value={u.role}
+                      onChange={(e) => updateRole(u.id, e.target.value as any)}
+                      className={`px-3 py-1.5 rounded-lg border ${borderColor} text-sm`}
+                      style={{ backgroundColor: bgCard, ...borderColorStyle }}
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      {currentUserProfile?.role === 'owner' && <option value="owner">Owner</option>}
+                    </select>
+                  )}
+
+                  {/* Role badge (non-admin or own profile) */}
+                  {(!canManageRoles || u.id === user?.id) && (
+                    <span className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-gray-600' : 'bg-gray-200'}`}>
+                      {ROLE_LABELS[u.role]}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
           ) : (
             <p className={`text-sm ${textSecondary}`} style={textSecondaryStyle}>No other household members yet.</p>
+          )}
+
+          {/* Role descriptions (show for admins) */}
+          {canManageRoles && (
+            <div className={`mt-4 pt-4 border-t ${borderColor} text-xs ${textSecondary}`} style={{ ...borderColorStyle, ...textSecondaryStyle }}>
+              <div className="font-medium mb-2">Role Permissions:</div>
+              <ul className="space-y-1">
+                <li><strong>Owner/Admin:</strong> Full access including user management</li>
+                <li><strong>Member:</strong> Can add/edit items (cannot delete or manage categories/locations)</li>
+                <li><strong>Viewer:</strong> Read-only access</li>
+              </ul>
+            </div>
           )}
         </div>
 

@@ -3,6 +3,11 @@
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: UserProfile;
+        Insert: Omit<UserProfile, 'created_at' | 'updated_at'>;
+        Update: Partial<Omit<UserProfile, 'id'>>;
+      };
       user_profiles: {
         Row: UserProfile;
         Insert: Omit<UserProfile, 'created_at' | 'updated_at'>;
@@ -64,10 +69,10 @@ export interface Database {
 
 export interface UserProfile {
   id: string;
-  display_name: string;
+  email: string | null;
+  display_name: string | null;
   avatar_url: string | null;
   role: 'owner' | 'admin' | 'member' | 'viewer';
-  preferences: UserPreferences;
   created_at: string;
   updated_at: string;
 }

@@ -19,17 +19,12 @@ export const signUp = async (email: string, password: string, displayName: strin
       data: { display_name: displayName }
     }
   });
-  
+
   if (error) throw error;
-  
-  // Create user profile
-  if (data.user) {
-    await supabase.from('user_profiles').insert({
-      id: data.user.id,
-      display_name: displayName,
-    });
-  }
-  
+
+  // Profile with 'viewer' role will be auto-created by database trigger (handle_new_user)
+  // No need to manually insert - trigger handles everything with proper default role
+
   return data;
 };
 
