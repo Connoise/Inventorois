@@ -175,6 +175,14 @@ export function useItems() {
     await fetchItems();
   }, [fetchItems]);
 
+  const batchUpdate = useCallback(async (
+    ids: string[],
+    updates: { category_id?: string; location_id?: string }
+  ) => {
+    await itemsService.batchUpdateItems(ids, updates);
+    await fetchItems();
+  }, [fetchItems]);
+
   return {
     items,
     loading,
@@ -185,6 +193,7 @@ export function useItems() {
     createItem,
     updateItem,
     archiveItem,
+    batchUpdate,
   };
 }
 

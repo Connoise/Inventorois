@@ -281,6 +281,49 @@ export async function fetchRecentItems(limit: number = 10): Promise<ItemWithRela
   return items.slice(0, limit);
 }
 
+// Batch update multiple items
+export async function batchUpdateItems(
+  ids: string[],
+  updates: { category_id?: string; location_id?: string }
+): Promise<void> {
+  const { data: user } = await supabase.auth.getUser();
+
+  // Update items in parallel
+  const updatePromises = ids.map(async (id) => {
+    // Update item fields if category changed
+    if (updates.category_id !== undefined) {
+      await supabase
+        .from('items')
+        .update({
+          category_id: updates.category_id || null,
+          updated_by: user.user?.id
+        })
+        .eq('id', id);
+    }
+
+    // Update location if provided
+    if (updates.location_id !== undefined) {
+      // Remove old primary location
+      await supabase
+        .from('item_locations')
+        .delete()
+        .eq('item_id', id)
+        .eq('is_primary', true);
+
+      // Add new location if not empty
+      if (updates.location_id) {
+        await supabase.from('item_locations').insert({
+          item_id: id,
+          location_id: updates.location_id,
+          is_primary: true,
+        });
+      }
+    }
+  });
+
+  await Promise.all(updatePromises);
+}
+
 // Helper to log changes
 async function logChange(
   entityType: 'item' | 'category' | 'location' | 'tag',
