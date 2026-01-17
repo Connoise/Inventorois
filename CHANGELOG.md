@@ -56,10 +56,13 @@ New columns added to `items` table:
 - `notes` (TEXT)
 - `expiration_date` (DATE)
 - `needs_replacement` (BOOLEAN)
+- `image_url` (TEXT) - Single image per item
 
 New tables:
-- `profiles` - User information and avatars
+- `profiles` - User information, avatars, and roles (source of truth for user data)
 - `wishlist` - Wishlist items
+
+Note: `profiles` is the canonical user table. The `user_profiles` table in the base schema is deprecated.
 
 ---
 
@@ -77,10 +80,11 @@ New tables:
    - Export to reminders or notes apps
    - Share with other household members
 
-3. **Multi-Household Support**
+3. **Multi-Household Support** *(Not yet implemented - requires schema changes)*
    - Create multiple inventories (home, office, cabin)
    - Switch between households
    - Invite members to specific households
+   - Requires: `households` table, `household_members` junction, RLS policy updates
 
 4. **Push Notifications**
    - Alert when items reach low stock threshold

@@ -1,9 +1,22 @@
+-- ============================================================================
+-- Wishlist and Profiles Migration
+-- ============================================================================
+-- Migration Order: Run this AFTER schema.sql and add-images.sql
+-- Next Migration: add-role-permissions.sql
+--
+-- This migration:
+-- 1. Adds notes, expiration_date, needs_replacement to items table
+-- 2. Creates the `profiles` table (source of truth for user data)
+-- 3. Creates the `wishlist` table
+-- ============================================================================
+
 -- Add new fields to items table
 ALTER TABLE items ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS expiration_date DATE;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS needs_replacement BOOLEAN DEFAULT FALSE;
 
 -- Create profiles table for user information
+-- NOTE: This is the canonical user table, replacing user_profiles from base schema
 CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT,

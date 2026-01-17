@@ -2,7 +2,11 @@
 -- User Role-Based Permissions Migration
 -- ============================================================================
 -- This migration adds role-based access control to the inventory app
--- IMPORTANT: This migration sets im@connoi.se as owner BEFORE restricting access
+--
+-- IMPORTANT: Before running this migration, set the OWNER_EMAIL variable below
+-- to the email address of the user who should have owner privileges.
+--
+-- Migration Order: Run this AFTER add-wishlist-profiles.sql
 
 -- ============================================================================
 -- PART 1: Add Role Field and Set Admin User (CRITICAL - DO FIRST)
@@ -18,13 +22,24 @@ SET role = up.role
 FROM user_profiles up
 WHERE p.id = up.id AND up.role IS NOT NULL;
 
--- 3. CRITICAL: Set im@connoi.se as owner BEFORE enabling restrictions
+-- 3. CRITICAL: Set the owner BEFORE enabling restrictions
+-- ⚠️  CHANGE THIS EMAIL to your admin email address before running!
+-- Example: Replace 'YOUR_OWNER_EMAIL@example.com' with your actual email
+
+-- Option A: Set a specific email as owner (RECOMMENDED)
+-- Uncomment and modify the line below:
+-- UPDATE profiles SET role = 'owner' WHERE email = 'YOUR_OWNER_EMAIL@example.com';
+
+-- Option B: Set the first registered user as owner (alternative)
+-- UPDATE profiles SET role = 'owner' WHERE created_at = (SELECT MIN(created_at) FROM profiles);
+
+-- Default: Set a placeholder that will fail gracefully if not changed
 UPDATE profiles
 SET role = 'owner'
-WHERE email = 'im@connoi.se';
+WHERE email = 'YOUR_OWNER_EMAIL@example.com';
 
--- Verify the owner is set (check output)
-SELECT id, email, display_name, role FROM profiles WHERE email = 'im@connoi.se';
+-- Verify the owner is set (check output - should show your email with role='owner')
+SELECT id, email, display_name, role FROM profiles WHERE role = 'owner';
 
 -- 4. Update trigger to include role with 'viewer' default for new signups
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -256,17 +271,20 @@ CREATE POLICY "Admins can update user roles" ON profiles
 
 -- Run these to verify the migration worked:
 
--- 1. Check owner is set
--- SELECT id, email, display_name, role FROM profiles WHERE email = 'im@connoi.se';
--- Expected: role = 'owner'
+-- 1. Check owner is set (should show your email with role='owner')
+-- SELECT id, email, display_name, role FROM profiles WHERE role = 'owner';
 
 -- 2. List all users and their roles
 -- SELECT email, display_name, role, created_at FROM profiles ORDER BY created_at;
 
--- 3. Test helper functions
+-- 3. Test helper functions (replace with your owner's user ID)
 -- SELECT public.is_admin(id), public.can_modify_items(id), role
--- FROM profiles WHERE email = 'im@connoi.se';
+-- FROM profiles WHERE role = 'owner';
 -- Expected: is_admin = true, can_modify_items = true, role = 'owner'
+
+-- 4. If no owner was set, run this to set the first user as owner:
+-- UPDATE profiles SET role = 'owner'
+-- WHERE created_at = (SELECT MIN(created_at) FROM profiles);
 
 -- ============================================================================
 -- ROLLBACK INSTRUCTIONS (In case you need to revert)

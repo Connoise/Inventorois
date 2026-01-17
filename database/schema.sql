@@ -11,6 +11,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- (Supabase Auth handles this, but we extend it)
 -- ============================================
 
+-- DEPRECATED: Use `profiles` table from add-wishlist-profiles.sql instead.
+-- This table is kept for backwards compatibility but `profiles` is the source of truth.
+-- The `profiles` table is created by add-wishlist-profiles.sql migration.
+-- Role-based access is added by add-role-permissions.sql migration.
+
 CREATE TABLE user_profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     display_name TEXT NOT NULL,
@@ -126,9 +131,10 @@ CREATE TABLE items (
     )),
     
     -- Financial
+    -- TODO: No currency conversion or formatting implemented - only stores raw values
     purchase_price DECIMAL(10, 2),
     current_value DECIMAL(10, 2),
-    currency TEXT DEFAULT 'USD',
+    currency TEXT DEFAULT 'USD',          -- Stored but no conversion/localization
     
     -- Identification
     barcode TEXT,
@@ -137,15 +143,21 @@ CREATE TABLE items (
     serial_number TEXT,
     
     -- Dates
-    acquired_date DATE,
+    acquired_date DATE,                   -- Also known as "purchase date"
     expiration_date DATE,
     warranty_expiration DATE,
     last_checked_date TIMESTAMPTZ,
-    
+
+    -- Status Flags (continued)
+    needs_replacement BOOLEAN DEFAULT FALSE,  -- Mark items ready to be replaced
+
+    -- Image
+    image_url TEXT,                       -- Single image per item (stored in Supabase Storage)
+
     -- Flexible Fields
     notes TEXT,
     custom_fields JSONB DEFAULT '{}'::jsonb,
-    
+
     -- Metadata
     created_by UUID REFERENCES auth.users(id),
     updated_by UUID REFERENCES auth.users(id),
@@ -201,7 +213,9 @@ CREATE INDEX idx_item_tags_tag ON item_tags(tag_id);
 
 -- ============================================
 -- ITEM IMAGES
--- For Phase 3 (self-hosted storage)
+-- DEPRECATED: Use items.image_url instead for single image per item.
+-- This table is kept for backwards compatibility only.
+-- For multiple images per item (future feature), this could be re-enabled.
 -- ============================================
 
 CREATE TABLE item_images (
@@ -265,12 +279,16 @@ CREATE INDEX idx_history_action ON change_history(action);
 -- Pre-filled item configurations
 -- ============================================
 
+-- TODO: Add JSON schema validation for template_data
+-- Consider creating a TypeScript interface and validating on the client side
+
 CREATE TABLE item_templates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     description TEXT,
-    
+
     -- Template data (matches items table structure)
+    -- TODO: No formal JSON schema exists - validation should be added
     template_data JSONB NOT NULL DEFAULT '{}'::jsonb,
     /*
     Example template_data:
@@ -303,30 +321,34 @@ CREATE INDEX idx_templates_popular ON item_templates(use_count DESC);
 -- Push notification queue
 -- ============================================
 
+-- TODO: Add cleanup mechanism for expired notifications
+-- Options: cron job, Supabase Edge Function, or pg_cron extension
+-- Currently no automatic deletion of notifications where expires_at < NOW()
+
 CREATE TABLE notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    
+
     -- Notification content
     title TEXT NOT NULL,
     body TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN (
-        'low_stock', 'expiring_soon', 'item_updated', 
+        'low_stock', 'expiring_soon', 'item_updated',
         'threshold_alert', 'system', 'reminder'
     )),
-    
+
     -- Related entity
     entity_type TEXT,
     entity_id UUID,
-    
+
     -- Status
     is_read BOOLEAN DEFAULT FALSE,
     is_pushed BOOLEAN DEFAULT FALSE,      -- Sent to device
-    
+
     -- Timing
     created_at TIMESTAMPTZ DEFAULT NOW(),
     read_at TIMESTAMPTZ,
-    expires_at TIMESTAMPTZ
+    expires_at TIMESTAMPTZ                -- TODO: No cleanup mechanism exists for expired notifications
 );
 
 CREATE INDEX idx_notifications_user ON notifications(user_id);

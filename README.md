@@ -1,4 +1,4 @@
-# HomeBase - Household Inventory App
+# Inventorois - Household Inventory App
 
 A modern, cross-platform household inventory management application built with React and Supabase.
 
@@ -31,7 +31,7 @@ A modern, cross-platform household inventory management application built with R
 
 2. **Install dependencies**
    ```bash
-   cd inventory-app
+   cd Inventorois
    npm install
    ```
 
@@ -69,7 +69,7 @@ A modern, cross-platform household inventory management application built with R
 ## Project Structure
 
 ```
-inventory-app/
+Inventorois/
 ├── src/
 │   ├── App.tsx           # Main application component
 │   ├── main.tsx          # Entry point

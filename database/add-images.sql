@@ -1,4 +1,19 @@
--- Add image_url column to items table
+-- ============================================================================
+-- Image Storage Migration
+-- ============================================================================
+-- Migration Order: Run this AFTER schema.sql
+-- Next Migration: add-wishlist-profiles.sql
+--
+-- This migration:
+-- 1. Adds image_url column to items table (single image per item)
+-- 2. Creates Supabase Storage bucket for images
+-- 3. Sets up storage access policies
+--
+-- Note: The item_images table in schema.sql is deprecated.
+-- Use items.image_url for single image per item.
+-- ============================================================================
+
+-- Add image_url column to items table (single image per item)
 ALTER TABLE items ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 -- Create storage bucket for item images
